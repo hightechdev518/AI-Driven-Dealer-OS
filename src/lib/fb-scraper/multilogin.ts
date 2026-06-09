@@ -1,8 +1,78 @@
 import { createHash } from "crypto";
+import https from "node:https";
 import { ScraperError } from "./types";
 
 const MLX_API = "https://api.multilogin.com";
-const MLX_LAUNCHER = "http://127.0.0.1:45001";
+const MLX_LAUNCHER = "https://127.0.0.1:45001";
+
+const launcherHttpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+function getHeaders(init?: RequestInit): Record<string, string> {
+  if (!init?.headers) return {};
+  if (init.headers instanceof Headers) {
+    const result: Record<string, string> = {};
+    init.headers.forEach((value, key) => {
+      result[key] = value;
+    });
+    return result;
+  }
+  return init.headers as Record<string, string>;
+}
+
+async function fetchLauncher(
+  url: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const parsedUrl = new URL(url);
+  const headers = getHeaders(init);
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        protocol: parsedUrl.protocol,
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || 443,
+        path: `${parsedUrl.pathname}${parsedUrl.search}`,
+        method: init.method ?? "GET",
+        headers,
+        agent: launcherHttpsAgent,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const body = Buffer.concat(chunks);
+          const responseHeaders = new Headers();
+          for (const [key, value] of Object.entries(res.headers)) {
+            if (value == null) continue;
+            if (Array.isArray(value)) {
+              value.forEach((item) => responseHeaders.append(key, item));
+            } else {
+              responseHeaders.set(key, value);
+            }
+          }
+          resolve(
+            new Response(body, {
+              status: res.statusCode ?? 500,
+              statusText: res.statusMessage,
+              headers: responseHeaders,
+            })
+          );
+        });
+      }
+    );
+
+    req.on("error", reject);
+
+    if (init.body) {
+      req.write(
+        typeof init.body === "string" ? init.body : init.body.toString()
+      );
+    }
+
+    req.end();
+  });
+}
 
 export interface MultiloginConfig {
   apiToken: string;
@@ -86,7 +156,7 @@ export async function startMultiloginProfile(
 ): Promise<string> {
   const url = `${MLX_LAUNCHER}/api/v2/profile/f/${config.folderId}/p/${config.profileId}/start?automation_type=playwright&headless_mode=false`;
 
-  const response = await fetch(url, {
+  const response = await fetchLauncher(url, {
     headers: {
       Authorization: `Bearer ${config.apiToken}`,
       Accept: "application/json",
@@ -120,7 +190,7 @@ export async function stopMultiloginProfile(
   const url = `${MLX_LAUNCHER}/api/v2/profile/stop/p/${config.profileId}`;
 
   try {
-    await fetch(url, {
+    await fetchLauncher(url, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${config.apiToken}`,
