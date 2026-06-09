@@ -1,5 +1,7 @@
 export type AiPriority = "LIST NOW" | "HOLD" | "PRICE DROP" | "AUCTION";
 
+export type FbListingStatus = "draft" | "published" | "sold";
+
 export interface Vehicle {
   id: string;
   year: number | null;
@@ -29,6 +31,9 @@ export interface Vehicle {
   recommended_price: number | null;
   action_required: string | null;
   notes: string | null;
+  fb_listing_url: string | null;
+  fb_listed_at: string | null;
+  fb_listing_status: FbListingStatus | null;
   created_at: string;
 }
 
@@ -67,6 +72,9 @@ export interface VehicleFormData {
   market_high?: number | null;
   comp_count?: number | null;
   notes?: string | null;
+  fb_listing_url?: string | null;
+  fb_listed_at?: string | null;
+  fb_listing_status?: FbListingStatus | null;
 }
 
 export interface AiExtractedVehicle {

@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS vehicles (
   recommended_price NUMERIC(12, 2),
   action_required TEXT,
   notes TEXT,
+  fb_listing_url TEXT,
+  fb_listed_at TIMESTAMPTZ,
+  fb_listing_status TEXT CHECK (fb_listing_status IN ('draft', 'published', 'sold')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -172,3 +175,9 @@ FROM vehicles WHERE make = 'Audi' AND model = 'S3' LIMIT 1;
 INSERT INTO market_comps (vehicle_id, year, make, model, mileage, source, location, listing_price, url, date_checked)
 SELECT id, 2016, 'Audi', 'S3', 158000, 'Facebook', 'Local', 9500, 'https://example.com/aud3', CURRENT_DATE
 FROM vehicles WHERE make = 'Audi' AND model = 'S3' LIMIT 1;
+
+-- Migration: add Facebook listing fields to existing databases
+-- ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS fb_listing_url TEXT;
+-- ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS fb_listed_at TIMESTAMPTZ;
+-- ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS fb_listing_status TEXT CHECK (fb_listing_status IN ('draft', 'published', 'sold'));
+

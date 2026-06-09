@@ -2,9 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import { AddVehicleDialog } from "@/components/add-vehicle-dialog";
 import { CsvImportButton } from "@/components/csv-import-button";
+import { FbListingBadge } from "@/components/fb-listing-badge";
 import { PriorityBadge } from "@/components/priority-badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -74,6 +77,7 @@ export default function InventoryPage() {
                   <TableHead>Net Profit</TableHead>
                   <TableHead>Days in Stock</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Facebook</TableHead>
                   <TableHead>AI Priority</TableHead>
                   <TableHead>Action Required</TableHead>
                 </TableRow>
@@ -103,6 +107,34 @@ export default function InventoryPage() {
                     <TableCell>{formatCurrency(vehicle.net_profit)}</TableCell>
                     <TableCell>{vehicle.days_in_stock ?? 0}</TableCell>
                     <TableCell>{vehicle.status ?? "—"}</TableCell>
+                    <TableCell>
+                      {vehicle.fb_listing_url ? (
+                        <div className="flex flex-col gap-1">
+                          <FbListingBadge status={vehicle.fb_listing_status} />
+                          <a
+                            href={vehicle.fb_listing_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-orange-500 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Listed on FB
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          asChild
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Link href={`/inventory/${vehicle.id}`}>
+                            Not Listed
+                          </Link>
+                        </Button>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <PriorityBadge priority={vehicle.ai_priority} />
                     </TableCell>

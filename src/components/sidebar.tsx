@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Car,
   Sparkles,
+  Search,
   Menu,
   X,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: Car },
+  { href: "/market-search", label: "Market Search", icon: Search },
   { href: "/ai-entry", label: "AI Entry", icon: Sparkles },
 ];
 

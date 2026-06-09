@@ -110,6 +110,9 @@ export function enrichVehicle(data: VehicleFormData & { id?: string }): Omit<
     recommended_price: recommendedPrice,
     action_required: actionRequired,
     notes: data.notes ?? null,
+    fb_listing_url: data.fb_listing_url ?? null,
+    fb_listed_at: data.fb_listed_at ?? null,
+    fb_listing_status: data.fb_listing_status ?? null,
   };
 }
 

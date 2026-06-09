@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Plus, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FbListingBadge } from "@/components/fb-listing-badge";
+import { FbPublishDialog } from "@/components/fb-publish-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -155,18 +157,32 @@ export default function VehicleDetailPage() {
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <PriorityBadge priority={vehicle.ai_priority} />
+              <FbListingBadge status={vehicle.fb_listing_status} />
+              {vehicle.fb_listing_url && (
+                <a
+                  href={vehicle.fb_listing_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sm text-orange-500 hover:underline"
+                >
+                  View FB Listing <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
               <span className="text-sm text-slate-400">
                 {vehicle.status} · {vehicle.days_in_stock ?? 0} days in stock
               </span>
             </div>
           </div>
         </div>
-        <Button
-          variant={editing ? "secondary" : "outline"}
-          onClick={() => setEditing(!editing)}
-        >
-          {editing ? "Cancel Edit" : "Edit Vehicle"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <FbPublishDialog vehicle={vehicle} onPublished={loadData} />
+          <Button
+            variant={editing ? "secondary" : "outline"}
+            onClick={() => setEditing(!editing)}
+          >
+            {editing ? "Cancel Edit" : "Edit Vehicle"}
+          </Button>
+        </div>
       </div>
 
       {editing ? (
@@ -250,6 +266,23 @@ export default function VehicleDetailPage() {
                 value={vehicle.listed_online ? "Yes" : "No"}
               />
               <DetailRow label="Channel" value={vehicle.online_channel} />
+              <DetailRow
+                label="Facebook Listing"
+                value={
+                  vehicle.fb_listing_url ? (
+                    <a
+                      href={vehicle.fb_listing_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-orange-500 hover:underline"
+                    >
+                      {vehicle.fb_listing_status ?? "published"}
+                    </a>
+                  ) : (
+                    vehicle.fb_listing_status ?? "Not listed"
+                  )
+                }
+              />
               <DetailRow label="Bought Date" value={vehicle.bought_date} />
               <DetailRow label="Notes" value={vehicle.notes} />
             </CardContent>
@@ -445,7 +478,7 @@ function DetailRow({
   value,
 }: {
   label: string;
-  value: string | null | undefined;
+  value: ReactNode;
 }) {
   return (
     <div className="flex justify-between border-b border-slate-800 py-2">
