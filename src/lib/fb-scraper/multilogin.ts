@@ -1,7 +1,7 @@
 import { ScraperError } from "./types";
 
 const MLX_API = "https://api.multilogin.com";
-const MLX_LAUNCHER = "https://launcher.mlx.yt:45001";
+const MLX_LAUNCHER = "http://127.0.0.1:45001";
 
 export interface MultiloginConfig {
   apiToken: string;
