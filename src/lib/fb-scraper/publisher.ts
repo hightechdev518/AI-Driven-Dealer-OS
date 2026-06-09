@@ -14,6 +14,7 @@ import {
 } from "./human-behavior";
 import {
   getMultiloginConfig,
+  getCdpWebSocketUrl,
   startMultiloginProfile,
   stopMultiloginProfile,
 } from "./multilogin";
@@ -286,7 +287,8 @@ export async function publishToFacebookMarketplace(
     const browserUrl = await startMultiloginProfile(config);
     await randomDelay(2000, 3000);
 
-    browser = await chromium.connectOverCDP(browserUrl, { timeout: 30000 });
+    const wsUrl = await getCdpWebSocketUrl(browserUrl);
+    browser = await chromium.connectOverCDP(wsUrl, { timeout: 30000 });
     const context = browser.contexts()[0];
     if (!context) {
       throw new ScraperError("No browser context from Multilogin", "MULTILOGIN");

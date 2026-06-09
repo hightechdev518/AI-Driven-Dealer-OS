@@ -143,6 +143,26 @@ export async function startMultiloginProfile(
   return `http://127.0.0.1:${port}`;
 }
 
+export async function getCdpWebSocketUrl(browserUrl: string): Promise<string> {
+  const response = await fetch(`${browserUrl}/json/version`);
+  if (!response.ok) {
+    throw new ScraperError(
+      `Failed to get CDP endpoint: HTTP ${response.status}`,
+      "MULTILOGIN"
+    );
+  }
+
+  const data = (await response.json()) as { webSocketDebuggerUrl?: string };
+  if (!data.webSocketDebuggerUrl) {
+    throw new ScraperError(
+      "CDP endpoint did not return webSocketDebuggerUrl",
+      "MULTILOGIN"
+    );
+  }
+
+  return data.webSocketDebuggerUrl;
+}
+
 export async function stopMultiloginProfile(
   config: MultiloginConfig
 ): Promise<void> {

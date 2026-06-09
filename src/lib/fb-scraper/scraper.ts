@@ -8,6 +8,7 @@ import {
 } from "./human-behavior";
 import {
   getMultiloginConfig,
+  getCdpWebSocketUrl,
   startMultiloginProfile,
   stopMultiloginProfile,
 } from "./multilogin";
@@ -362,7 +363,8 @@ export async function scrapeFacebookMarketplace(
     const browserUrl = await startMultiloginProfile(config);
     await randomDelay(2000, 3000);
 
-    browser = await chromium.connectOverCDP(browserUrl, {
+    const wsUrl = await getCdpWebSocketUrl(browserUrl);
+    browser = await chromium.connectOverCDP(wsUrl, {
       timeout: 30000,
     });
 
