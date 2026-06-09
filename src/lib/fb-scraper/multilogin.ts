@@ -1,13 +1,13 @@
 import { createHash } from "crypto";
-import https from "https";
+import http from "http";
 import { ScraperError } from "./types";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const MLX_API = "https://api.multilogin.com";
-const MLX_LAUNCHER = "https://127.0.0.1:45001";
+const MLX_LAUNCHER = "http://127.0.0.1:45000";
 
-function httpsGet(url: string, token: string): Promise<string> {
+function httpGet(url: string, token: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const options = {
@@ -15,13 +15,12 @@ function httpsGet(url: string, token: string): Promise<string> {
       port: parsed.port,
       path: parsed.pathname + parsed.search,
       method: "GET",
-      rejectUnauthorized: false,
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
       },
     };
-    const req = https.request(options, (res) => {
+    const req = http.request(options, (res) => {
       let data = "";
       res.on("data", (chunk) => {
         data += chunk;
@@ -123,7 +122,7 @@ export async function startMultiloginProfile(
 
   let body: { data?: { port?: number } } = {};
   try {
-    const raw = await httpsGet(url, config.apiToken);
+    const raw = await httpGet(url, config.apiToken);
     body = JSON.parse(raw);
   } catch (error) {
     console.error("Multilogin start profile failed:", error);
@@ -150,7 +149,7 @@ export async function stopMultiloginProfile(
   const url = `${MLX_LAUNCHER}/api/v2/profile/stop/p/${config.profileId}`;
 
   try {
-    await httpsGet(url, config.apiToken);
+    await httpGet(url, config.apiToken);
   } catch (error) {
     console.error("Multilogin stop profile error:", error);
   }
