@@ -2,6 +2,8 @@ import { createHash } from "crypto";
 import https from "node:https";
 import { ScraperError } from "./types";
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const MLX_API = "https://api.multilogin.com";
 const MLX_LAUNCHER = "https://127.0.0.1:45001";
 
