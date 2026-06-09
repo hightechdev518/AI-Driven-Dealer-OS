@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink, Loader2, Search, Save } from "lucide-react";
+import { ExternalLink, Loader2, MessageCircle, Search, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -327,15 +327,27 @@ export default function MarketSearchContent() {
                           : "—"}
                       </TableCell>
                       <TableCell>
-                        <a
-                          href={listing.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-orange-500 hover:underline"
-                        >
-                          View
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
+                        <div className="flex flex-col gap-1">
+                          <a
+                            href={listing.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-orange-500 hover:underline"
+                          >
+                            View
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                          <a
+                            href={listing.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-orange-500"
+                            title="Message seller on Facebook Marketplace"
+                          >
+                            <MessageCircle className="h-3 w-3" />
+                            Chat on Messenger
+                          </a>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Button

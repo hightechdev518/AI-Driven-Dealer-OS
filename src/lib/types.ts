@@ -88,3 +88,45 @@ export interface AiExtractedVehicle {
   notes: string | null;
   online_channel: string | null;
 }
+
+export type MessageDirection = "inbound" | "outbound";
+export type CustomerSource = "messenger" | "manual";
+
+export interface Customer {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  fb_profile_url: string | null;
+  fb_messenger_id: string | null;
+  fb_conversation_id: string | null;
+  source: CustomerSource | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface Message {
+  id: string;
+  customer_id: string;
+  message: string;
+  direction: MessageDirection;
+  timestamp: string;
+  read: boolean;
+  fb_message_id: string | null;
+  created_at: string;
+}
+
+export interface CustomerInquiry {
+  id: string;
+  customer_id: string;
+  vehicle_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface ConversationSummary {
+  customer: Customer;
+  last_message: string | null;
+  last_message_at: string | null;
+  unread_count: number;
+}

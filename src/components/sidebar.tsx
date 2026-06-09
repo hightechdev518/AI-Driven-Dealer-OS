@@ -7,23 +7,39 @@ import {
   Car,
   Sparkles,
   Search,
+  MessageCircle,
   Menu,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: Car },
   { href: "/market-search", label: "Market Search", icon: Search },
+  { href: "/messenger", label: "Messenger", icon: MessageCircle, showBadge: true },
   { href: "/ai-entry", label: "AI Entry", icon: Sparkles },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const loadUnread = () => {
+      fetch("/api/messenger/unread")
+        .then((r) => r.json())
+        .then((data) => setUnreadCount(data.unread_count ?? 0))
+        .catch(() => setUnreadCount(0));
+    };
+
+    loadUnread();
+    const interval = setInterval(loadUnread, 60000);
+    return () => clearInterval(interval);
+  }, [pathname]);
 
   const navContent = (
     <>
@@ -52,7 +68,12 @@ export function Sidebar() {
               )}
             >
               <Icon className="h-5 w-5" />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.showBadge && unreadCount > 0 && (
+                <span className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-bold text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </Link>
           );
         })}
@@ -75,6 +96,11 @@ export function Sidebar() {
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
         <span className="ml-3 font-bold text-white">Dealer AI OS</span>
+        {unreadCount > 0 && (
+          <span className="ml-auto rounded-full bg-orange-500 px-2 py-0.5 text-xs font-bold text-white">
+            {unreadCount}
+          </span>
+        )}
       </div>
 
       {mobileOpen && (

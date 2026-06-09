@@ -57,19 +57,70 @@ CREATE TABLE IF NOT EXISTS market_comps (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Customers table
+CREATE TABLE IF NOT EXISTS customers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT,
+  phone TEXT,
+  email TEXT,
+  fb_profile_url TEXT,
+  fb_messenger_id TEXT UNIQUE,
+  fb_conversation_id TEXT,
+  source TEXT DEFAULT 'messenger' CHECK (source IN ('messenger', 'manual')),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Messages table
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
+  message TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+  timestamp TIMESTAMPTZ NOT NULL,
+  read BOOLEAN DEFAULT FALSE,
+  fb_message_id TEXT UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Customer vehicle inquiries
+CREATE TABLE IF NOT EXISTS customer_inquiries (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
+  vehicle_id UUID REFERENCES vehicles(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_vehicles_status ON vehicles(status);
 CREATE INDEX IF NOT EXISTS idx_vehicles_ai_priority ON vehicles(ai_priority);
 CREATE INDEX IF NOT EXISTS idx_market_comps_vehicle_id ON market_comps(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_messages_customer_id ON messages(customer_id);
+CREATE INDEX IF NOT EXISTS idx_messages_read ON messages(read);
+CREATE INDEX IF NOT EXISTS idx_customers_fb_messenger_id ON customers(fb_messenger_id);
+CREATE INDEX IF NOT EXISTS idx_customer_inquiries_customer_id ON customer_inquiries(customer_id);
 
 -- Row Level Security (permissive for MVP demo)
 ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE market_comps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customer_inquiries ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow all access to vehicles" ON vehicles
   FOR ALL USING (true) WITH CHECK (true);
 
 CREATE POLICY "Allow all access to market_comps" ON market_comps
+  FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow all access to customers" ON customers
+  FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow all access to messages" ON messages
+  FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow all access to customer_inquiries" ON customer_inquiries
   FOR ALL USING (true) WITH CHECK (true);
 
 -- Clear existing seed data (optional - comment out if you want to preserve data)
@@ -180,4 +231,7 @@ FROM vehicles WHERE make = 'Audi' AND model = 'S3' LIMIT 1;
 -- ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS fb_listing_url TEXT;
 -- ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS fb_listed_at TIMESTAMPTZ;
 -- ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS fb_listing_status TEXT CHECK (fb_listing_status IN ('draft', 'published', 'sold'));
+
+-- Migration: add Messenger tables to existing databases
+-- (run customers, messages, customer_inquiries CREATE TABLE statements above)
 

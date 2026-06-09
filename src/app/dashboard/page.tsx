@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { MessageCircle } from "lucide-react";
 import { KpiCard } from "@/components/kpi-card";
 import { PriorityBadge } from "@/components/priority-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,7 @@ const PRIORITY_LABELS: Record<AiPriority, string> = {
 export default function DashboardPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
     fetch("/api/vehicles")
@@ -43,6 +45,11 @@ export default function DashboardPage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+
+    fetch("/api/messenger/unread")
+      .then((r) => r.json())
+      .then((data) => setUnreadMessages(data.unread_count ?? 0))
+      .catch(() => setUnreadMessages(0));
   }, []);
 
   const totalVehicles = vehicles.length;
@@ -104,6 +111,29 @@ export default function DashboardPage() {
         />
         <KpiCard title="Average ROI" value={formatPercent(avgRoi)} />
       </div>
+
+      <Link href="/messenger">
+        <Card className="border-orange-500/30 bg-orange-500/5 transition-colors hover:bg-orange-500/10">
+          <CardContent className="flex items-center justify-between p-4">
+            <div className="flex items-center gap-3">
+              <MessageCircle className="h-8 w-8 text-orange-500" />
+              <div>
+                <p className="font-semibold text-white">Messenger Inbox</p>
+                <p className="text-sm text-slate-400">
+                  {unreadMessages > 0
+                    ? `${unreadMessages} unread message${unreadMessages !== 1 ? "s" : ""}`
+                    : "All caught up"}
+                </p>
+              </div>
+            </div>
+            {unreadMessages > 0 && (
+              <span className="rounded-full bg-orange-500 px-3 py-1 text-sm font-bold text-white">
+                {unreadMessages}
+              </span>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {PRIORITY_ORDER.map((priority) => (
