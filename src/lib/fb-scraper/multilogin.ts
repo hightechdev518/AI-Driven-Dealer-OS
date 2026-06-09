@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { ScraperError } from "./types";
 
 const MLX_API = "https://api.multilogin.com";
@@ -9,14 +10,61 @@ export interface MultiloginConfig {
   profileId: string;
 }
 
-export function getMultiloginConfig(): MultiloginConfig {
-  const apiToken = process.env.MULTILOGIN_API_TOKEN;
+function md5Hash(value: string): string {
+  return createHash("md5").update(value).digest("hex");
+}
+
+export async function signInToMultilogin(): Promise<string> {
+  const email = process.env.MULTILOGIN_EMAIL;
+  const password = process.env.MULTILOGIN_PASSWORD;
+
+  if (!email || !password) {
+    throw new ScraperError(
+      "Missing MULTILOGIN_EMAIL or MULTILOGIN_PASSWORD in environment",
+      "CONFIG"
+    );
+  }
+
+  const response = await fetch(`${MLX_API}/user/signin`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      email,
+      password: md5Hash(password),
+    }),
+  });
+
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.error("Multilogin sign-in failed:", body);
+    throw new ScraperError(
+      `Multilogin sign-in failed: ${JSON.stringify(body)}`,
+      "MULTILOGIN"
+    );
+  }
+
+  const token = body?.data?.token;
+  if (!token) {
+    throw new ScraperError(
+      "Multilogin sign-in did not return a token",
+      "MULTILOGIN"
+    );
+  }
+
+  return token;
+}
+
+export async function getMultiloginConfig(): Promise<MultiloginConfig> {
   const folderId = process.env.MULTILOGIN_FOLDER_ID;
   const profileId = process.env.MULTILOGIN_PROFILE_ID;
 
-  if (!apiToken || !profileId) {
+  if (!profileId) {
     throw new ScraperError(
-      "Missing MULTILOGIN_API_TOKEN or MULTILOGIN_PROFILE_ID in environment",
+      "Missing MULTILOGIN_PROFILE_ID in environment",
       "CONFIG"
     );
   }
@@ -27,6 +75,8 @@ export function getMultiloginConfig(): MultiloginConfig {
       "CONFIG"
     );
   }
+
+  const apiToken = await signInToMultilogin();
 
   return { apiToken, folderId, profileId };
 }

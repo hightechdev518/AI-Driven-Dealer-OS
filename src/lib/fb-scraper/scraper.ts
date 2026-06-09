@@ -355,7 +355,7 @@ async function getBrowserContext(browser: Browser): Promise<{
 export async function scrapeFacebookMarketplace(
   params: FbSearchParams
 ): Promise<FbListing[]> {
-  const config = getMultiloginConfig();
+  const config = await getMultiloginConfig();
   let browser: Browser | null = null;
 
   try {

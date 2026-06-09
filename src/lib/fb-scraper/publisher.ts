@@ -279,7 +279,7 @@ async function publishListingOnPage(
 export async function publishToFacebookMarketplace(
   params: PublishParams
 ): Promise<{ listingUrl: string; photosUploaded: number }> {
-  const config = getMultiloginConfig();
+  const config = await getMultiloginConfig();
   let browser: Browser | null = null;
 
   try {
