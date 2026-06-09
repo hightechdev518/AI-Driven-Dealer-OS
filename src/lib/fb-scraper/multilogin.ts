@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import https from "node:https";
+import https from "https";
 import { ScraperError } from "./types";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -7,71 +7,34 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const MLX_API = "https://api.multilogin.com";
 const MLX_LAUNCHER = "https://127.0.0.1:45001";
 
-const launcherHttpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-function getHeaders(init?: RequestInit): Record<string, string> {
-  if (!init?.headers) return {};
-  if (init.headers instanceof Headers) {
-    const result: Record<string, string> = {};
-    init.headers.forEach((value, key) => {
-      result[key] = value;
-    });
-    return result;
-  }
-  return init.headers as Record<string, string>;
-}
-
-async function fetchLauncher(
-  url: string,
-  init: RequestInit = {}
-): Promise<Response> {
-  const parsedUrl = new URL(url);
-  const headers = getHeaders(init);
-
+function httpsGet(url: string, token: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        protocol: parsedUrl.protocol,
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 443,
-        path: `${parsedUrl.pathname}${parsedUrl.search}`,
-        method: init.method ?? "GET",
-        headers,
-        agent: launcherHttpsAgent,
+    const parsed = new URL(url);
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname + parsed.search,
+      method: "GET",
+      rejectUnauthorized: false,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
       },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
-        res.on("end", () => {
-          const body = Buffer.concat(chunks);
-          const responseHeaders = new Headers();
-          for (const [key, value] of Object.entries(res.headers)) {
-            if (value == null) continue;
-            if (Array.isArray(value)) {
-              value.forEach((item) => responseHeaders.append(key, item));
-            } else {
-              responseHeaders.set(key, value);
-            }
-          }
-          resolve(
-            new Response(body, {
-              status: res.statusCode ?? 500,
-              statusText: res.statusMessage,
-              headers: responseHeaders,
-            })
-          );
-        });
-      }
-    );
-
+    };
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => {
+        data += chunk;
+      });
+      res.on("end", () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+          return;
+        }
+        resolve(data);
+      });
+    });
     req.on("error", reject);
-
-    if (init.body) {
-      req.write(
-        typeof init.body === "string" ? init.body : init.body.toString()
-      );
-    }
-
     req.end();
   });
 }
@@ -158,19 +121,14 @@ export async function startMultiloginProfile(
 ): Promise<string> {
   const url = `${MLX_LAUNCHER}/api/v2/profile/f/${config.folderId}/p/${config.profileId}/start?automation_type=playwright&headless_mode=false`;
 
-  const response = await fetchLauncher(url, {
-    headers: {
-      Authorization: `Bearer ${config.apiToken}`,
-      Accept: "application/json",
-    },
-  });
-
-  const body = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    console.error("Multilogin start profile failed:", body);
+  let body: { data?: { port?: number } } = {};
+  try {
+    const raw = await httpsGet(url, config.apiToken);
+    body = JSON.parse(raw);
+  } catch (error) {
+    console.error("Multilogin start profile failed:", error);
     throw new ScraperError(
-      `Failed to start Multilogin profile: ${JSON.stringify(body)}`,
+      `Failed to start Multilogin profile: ${error instanceof Error ? error.message : String(error)}`,
       "MULTILOGIN"
     );
   }
@@ -192,13 +150,7 @@ export async function stopMultiloginProfile(
   const url = `${MLX_LAUNCHER}/api/v2/profile/stop/p/${config.profileId}`;
 
   try {
-    await fetchLauncher(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${config.apiToken}`,
-        Accept: "application/json",
-      },
-    });
+    await httpsGet(url, config.apiToken);
   } catch (error) {
     console.error("Multilogin stop profile error:", error);
   }
