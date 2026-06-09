@@ -1,8 +1,6 @@
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { chromium } from "playwright-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "playwright-core";
 import { ensureLoggedIn, isBlockedPage, isTwoFactorPage } from "./fb-auth";
 import {
@@ -14,13 +12,11 @@ import {
 } from "./human-behavior";
 import {
   getMultiloginConfig,
-  getCdpWebSocketUrl,
   startMultiloginProfile,
   stopMultiloginProfile,
 } from "./multilogin";
+import { connectMultiloginBrowser } from "./browser-connect";
 import { ScraperError } from "./types";
-
-chromium.use(StealthPlugin());
 
 export interface PublishParams {
   vehicleId: string;
@@ -284,11 +280,10 @@ export async function publishToFacebookMarketplace(
   let browser: Browser | null = null;
 
   try {
-    const browserUrl = await startMultiloginProfile(config);
+    const session = await startMultiloginProfile(config);
     await randomDelay(2000, 3000);
 
-    const wsUrl = await getCdpWebSocketUrl(browserUrl);
-    browser = await chromium.connectOverCDP(wsUrl, { timeout: 30000 });
+    browser = await connectMultiloginBrowser(session);
     const context = browser.contexts()[0];
     if (!context) {
       throw new ScraperError("No browser context from Multilogin", "MULTILOGIN");
