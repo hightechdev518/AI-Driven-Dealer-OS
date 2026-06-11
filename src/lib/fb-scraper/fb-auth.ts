@@ -15,6 +15,28 @@ const LOGIN_BUTTON_SELECTORS = [
 ];
 
 async function clickFacebookLoginButton(page: Page): Promise<void> {
+  const loginByRole = page.getByRole("button", { name: "Log in" }).first();
+  try {
+    await loginByRole.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
+    await loginByRole.click();
+    return;
+  } catch {
+    // fall through to selector-based approaches
+  }
+
+  const loginByLabel = page
+    .locator(
+      'div[aria-label="Log in"], button:has-text("Log in"), [role="button"]:has-text("Log in")'
+    )
+    .first();
+  try {
+    await loginByLabel.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
+    await loginByLabel.click();
+    return;
+  } catch {
+    // fall through to legacy selectors
+  }
+
   for (const selector of LOGIN_BUTTON_SELECTORS) {
     const button = page.locator(selector).first();
     try {
