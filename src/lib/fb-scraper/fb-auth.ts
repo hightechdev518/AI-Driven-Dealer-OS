@@ -121,6 +121,12 @@ export async function loginToFacebook(page: Page): Promise<void> {
   await passInput.fill(password);
   await randomDelay(500, 1200);
 
+  await page.screenshot({ path: "/tmp/fb-screenshot.png" });
+  console.log("URL:", page.url());
+  console.log("Title:", await page.title());
+  const html = await page.content();
+  console.log("HTML preview:", html.substring(0, 2000));
+
   await clickFacebookLoginButton(page);
   await randomDelay(2000, 4000);
 
