@@ -6,31 +6,11 @@ import { ScraperError } from "./types";
 const LOGIN_STEP_TIMEOUT = 60000;
 
 async function clickFacebookLoginButton(page: Page): Promise<void> {
-  const html = await page.content();
-  console.log("FULL HTML:", html.substring(0, 10000));
+  const submitInput = page.locator('input[type="submit"]').first();
 
-  const buttons = await page.$$eval(
-    'button, input[type="submit"]',
-    (els) =>
-      els.map((el) => ({
-        tag: el.tagName,
-        text: el.textContent?.trim(),
-        name: el.getAttribute("name"),
-        type: el.getAttribute("type"),
-        testid: el.getAttribute("data-testid"),
-        arialabel: el.getAttribute("aria-label"),
-        id: el.id,
-        class: el.className?.substring(0, 50),
-      }))
-  );
-  console.log("BUTTONS:", JSON.stringify(buttons));
-
-  const button = await page.$('button, input[type="submit"]');
-  if (!button) {
-    throw new ScraperError("Login button not found", "LOGIN");
-  }
-
-  await button.click();
+  await submitInput.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(500);
+  await submitInput.click({ force: true });
   await page.waitForTimeout(5000);
 }
 
