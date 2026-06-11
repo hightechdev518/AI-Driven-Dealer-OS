@@ -6,42 +6,31 @@ import { ScraperError } from "./types";
 const LOGIN_STEP_TIMEOUT = 60000;
 
 async function clickFacebookLoginButton(page: Page): Promise<void> {
-  // Method 1: JavaScript click on the login button
-  try {
-    await page.evaluate(() => {
-      const buttons = Array.from(
-        document.querySelectorAll('button, input[type="submit"]')
-      );
-      const loginBtn = buttons.find(
-        (b) =>
-          b.textContent?.includes("Log in") ||
-          b.getAttribute("name") === "login" ||
-          b.getAttribute("data-testid") === "royal_login_button"
-      ) as HTMLElement;
-      if (loginBtn) loginBtn.click();
-    });
-    await page.waitForTimeout(3000);
-    return;
-  } catch {}
+  await page.waitForSelector(
+    'button:has-text("Log in"), [data-testid="royal_login_button"]',
+    { timeout: 30000 }
+  );
 
-  // Method 2: Press Enter on password field
-  try {
-    await page.locator("#pass").press("Enter");
-    await page.waitForTimeout(3000);
-    return;
-  } catch {}
+  const button =
+    (await page.$('button:has-text("Log in")')) ||
+    (await page.$('[data-testid="royal_login_button"]')) ||
+    (await page.$('button[name="login"]'));
 
-  // Method 3: Submit the form directly
-  try {
-    await page.evaluate(() => {
-      const form = document.querySelector("form") as HTMLFormElement;
-      if (form) form.submit();
-    });
-    await page.waitForTimeout(3000);
-    return;
-  } catch {}
+  if (!button) {
+    throw new ScraperError("Login button not found", "LOGIN");
+  }
 
-  throw new ScraperError("Could not click Facebook login button", "LOGIN");
+  const box = await button.boundingBox();
+  if (!box) {
+    throw new ScraperError("Login button has no bounding box", "LOGIN");
+  }
+
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.waitForTimeout(500);
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(5000);
 }
 
 export async function isTwoFactorPage(page: Page): Promise<boolean> {
