@@ -6,30 +6,31 @@ import { ScraperError } from "./types";
 const LOGIN_STEP_TIMEOUT = 60000;
 
 async function clickFacebookLoginButton(page: Page): Promise<void> {
-  await page.waitForSelector(
-    'button:has-text("Log in"), [data-testid="royal_login_button"]',
-    { timeout: 30000 }
+  const html = await page.content();
+  console.log("FULL HTML:", html.substring(0, 10000));
+
+  const buttons = await page.$$eval(
+    'button, input[type="submit"]',
+    (els) =>
+      els.map((el) => ({
+        tag: el.tagName,
+        text: el.textContent?.trim(),
+        name: el.getAttribute("name"),
+        type: el.getAttribute("type"),
+        testid: el.getAttribute("data-testid"),
+        arialabel: el.getAttribute("aria-label"),
+        id: el.id,
+        class: el.className?.substring(0, 50),
+      }))
   );
+  console.log("BUTTONS:", JSON.stringify(buttons));
 
-  const button =
-    (await page.$('button:has-text("Log in")')) ||
-    (await page.$('[data-testid="royal_login_button"]')) ||
-    (await page.$('button[name="login"]'));
-
+  const button = await page.$('button, input[type="submit"]');
   if (!button) {
     throw new ScraperError("Login button not found", "LOGIN");
   }
 
-  const box = await button.boundingBox();
-  if (!box) {
-    throw new ScraperError("Login button has no bounding box", "LOGIN");
-  }
-
-  const x = box.x + box.width / 2;
-  const y = box.y + box.height / 2;
-  await page.mouse.move(x, y);
-  await page.waitForTimeout(500);
-  await page.mouse.click(x, y);
+  await button.click();
   await page.waitForTimeout(5000);
 }
 
@@ -109,7 +110,7 @@ export async function loginToFacebook(page: Page): Promise<void> {
     timeout: 60000,
   });
   await page.waitForLoadState("networkidle");
-  await randomDelay();
+  await page.waitForTimeout(3000);
 
   const emailInput = page.locator('input[name="email"], #email').first();
   await emailInput.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
