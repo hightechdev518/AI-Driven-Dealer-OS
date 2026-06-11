@@ -6,26 +6,42 @@ import { ScraperError } from "./types";
 const LOGIN_STEP_TIMEOUT = 60000;
 
 async function clickFacebookLoginButton(page: Page): Promise<void> {
-  // Try pressing Enter on the password field first (most reliable)
+  // Method 1: JavaScript click on the login button
   try {
-    await page.locator('input[name="pass"], #pass').press("Enter");
-    await page.waitForTimeout(2000);
+    await page.evaluate(() => {
+      const buttons = Array.from(
+        document.querySelectorAll('button, input[type="submit"]')
+      );
+      const loginBtn = buttons.find(
+        (b) =>
+          b.textContent?.includes("Log in") ||
+          b.getAttribute("name") === "login" ||
+          b.getAttribute("data-testid") === "royal_login_button"
+      ) as HTMLElement;
+      if (loginBtn) loginBtn.click();
+    });
+    await page.waitForTimeout(3000);
     return;
   } catch {}
 
-  // Try clicking by data-testid
+  // Method 2: Press Enter on password field
   try {
-    await page.locator('[data-testid="royal_login_button"]').click();
+    await page.locator("#pass").press("Enter");
+    await page.waitForTimeout(3000);
     return;
   } catch {}
 
-  // Try clicking by name attribute
+  // Method 3: Submit the form directly
   try {
-    await page.locator('button[name="login"]').click();
+    await page.evaluate(() => {
+      const form = document.querySelector("form") as HTMLFormElement;
+      if (form) form.submit();
+    });
+    await page.waitForTimeout(3000);
     return;
   } catch {}
 
-  throw new ScraperError("Could not find Facebook login button", "LOGIN");
+  throw new ScraperError("Could not click Facebook login button", "LOGIN");
 }
 
 export async function isTwoFactorPage(page: Page): Promise<boolean> {
