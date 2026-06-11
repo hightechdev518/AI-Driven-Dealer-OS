@@ -71,34 +71,34 @@ export async function loginToFacebook(page: Page): Promise<void> {
   });
   await page.waitForTimeout(5000);
 
-  await page.evaluate(
-    (credentials) => {
-      const emailInput = document.querySelector(
-        'input[name="email"]'
-      ) as HTMLInputElement;
-      const passInput = document.querySelector(
-        'input[name="pass"]'
-      ) as HTMLInputElement;
-      const submitBtn = document.querySelector(
-        'input[type="submit"], button[name="login"]'
-      ) as HTMLElement;
+  await page.evaluate((emailValue) => {
+    const el = document.querySelector(
+      'input[name="email"]'
+    ) as HTMLInputElement;
+    if (el) {
+      el.value = emailValue;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }, process.env.FB_EMAIL!);
 
-      if (emailInput) {
-        emailInput.value = credentials.email;
-        emailInput.dispatchEvent(new Event("input", { bubbles: true }));
-        emailInput.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      if (passInput) {
-        passInput.value = credentials.password;
-        passInput.dispatchEvent(new Event("input", { bubbles: true }));
-        passInput.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      if (submitBtn) {
-        submitBtn.click();
-      }
-    },
-    { email, password }
-  );
+  await page.waitForTimeout(500);
+
+  await page.evaluate((pass) => {
+    const el = document.querySelector('input[name="pass"]') as HTMLInputElement;
+    if (el) {
+      el.value = pass;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }, process.env.FB_PASSWORD!);
+
+  await page.waitForTimeout(500);
+
+  await page.evaluate(() => {
+    const form = document.querySelector("form") as HTMLFormElement;
+    if (form) form.submit();
+  });
 
   await page.waitForTimeout(5000);
   await page.screenshot({ path: "/tmp/fb-mobile-after.png" });
