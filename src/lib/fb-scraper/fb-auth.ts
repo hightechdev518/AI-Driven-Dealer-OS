@@ -7,11 +7,27 @@ const LOGIN_STEP_TIMEOUT = 60000;
 
 async function clickFacebookLoginButton(page: Page): Promise<void> {
   const submitInput = page.locator('input[type="submit"]').first();
+  const loginButton = page.locator('button[name="login"]').first();
 
-  await submitInput.scrollIntoViewIfNeeded();
-  await page.waitForTimeout(500);
-  await submitInput.click({ force: true });
-  await page.waitForTimeout(5000);
+  let submit: ReturnType<Page["locator"]>;
+  if ((await submitInput.count()) > 0) {
+    submit = submitInput;
+  } else if ((await loginButton.count()) > 0) {
+    submit = loginButton;
+  } else {
+    throw new ScraperError("Login button not found on mobile login page", "LOGIN");
+  }
+
+  await submit.scrollIntoViewIfNeeded();
+  await randomDelay(300, 700);
+
+  await Promise.all([
+    page
+      .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 })
+      .catch(() => {}),
+    submit.click({ force: true }),
+  ]);
+  await page.waitForLoadState("networkidle").catch(() => {});
 }
 
 export async function isTwoFactorPage(page: Page): Promise<boolean> {
@@ -85,31 +101,32 @@ export async function loginToFacebook(page: Page): Promise<void> {
     if (await isLoggedIn(page)) return;
   }
 
-  await page.goto("https://www.facebook.com/login", {
+  await page.goto("https://m.facebook.com/login", {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(3000);
 
-  const emailInput = page.locator('input[name="email"], #email').first();
+  const emailInput = page.locator('input[name="email"]').first();
   await emailInput.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
   await randomMouseMove(page);
   await emailInput.fill(email);
   await randomDelay(500, 1200);
 
-  const passInput = page.locator('input[name="pass"], #pass').first();
+  const passInput = page.locator('input[name="pass"]').first();
   await passInput.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
   await passInput.fill(password);
   await randomDelay(500, 1200);
 
   await clickFacebookLoginButton(page);
-  await page.screenshot({ path: "/tmp/fb-screenshot.png" });
-  await page.waitForTimeout(5000);
-  await page.screenshot({ path: "/tmp/fb-after-login.png" });
-  console.log("After login URL:", page.url());
-  console.log("After login Title:", await page.title());
   await randomDelay(2000, 4000);
+
+  await page.goto("https://www.facebook.com/marketplace", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await page.waitForLoadState("networkidle").catch(() => {});
 
   if (await isTwoFactorPage(page)) {
     throw new ScraperError(
