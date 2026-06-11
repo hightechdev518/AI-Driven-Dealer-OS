@@ -5,53 +5,27 @@ import { ScraperError } from "./types";
 
 const LOGIN_STEP_TIMEOUT = 60000;
 
-const LOGIN_BUTTON_SELECTORS = [
-  'button[name="login"]',
-  'input[name="login"]',
-  'button[type="submit"]',
-  '[data-testid="royal_login_button"]',
-  'text="Log in"',
-  'text="Log In"',
-];
-
 async function clickFacebookLoginButton(page: Page): Promise<void> {
-  const loginByRole = page.getByRole("button", { name: "Log in" }).first();
+  // Try pressing Enter on the password field first (most reliable)
   try {
-    await loginByRole.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
-    await loginByRole.click();
+    await page.locator('input[name="pass"], #pass').press("Enter");
+    await page.waitForTimeout(2000);
     return;
-  } catch {
-    // fall through to selector-based approaches
-  }
+  } catch {}
 
-  const loginByLabel = page
-    .locator(
-      'div[aria-label="Log in"], button:has-text("Log in"), [role="button"]:has-text("Log in")'
-    )
-    .first();
+  // Try clicking by data-testid
   try {
-    await loginByLabel.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
-    await loginByLabel.click();
+    await page.locator('[data-testid="royal_login_button"]').click();
     return;
-  } catch {
-    // fall through to legacy selectors
-  }
+  } catch {}
 
-  for (const selector of LOGIN_BUTTON_SELECTORS) {
-    const button = page.locator(selector).first();
-    try {
-      await button.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
-      await button.click();
-      return;
-    } catch {
-      continue;
-    }
-  }
+  // Try clicking by name attribute
+  try {
+    await page.locator('button[name="login"]').click();
+    return;
+  } catch {}
 
-  throw new ScraperError(
-    "Could not find Facebook login button",
-    "LOGIN"
-  );
+  throw new ScraperError("Could not find Facebook login button", "LOGIN");
 }
 
 export async function isTwoFactorPage(page: Page): Promise<boolean> {
