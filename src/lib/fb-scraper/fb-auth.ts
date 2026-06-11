@@ -1,34 +1,7 @@
 import type { Page } from "playwright-core";
 import { loadFbCookies, saveFbCookies } from "./cookies";
-import { randomDelay, randomMouseMove } from "./human-behavior";
+import { randomDelay } from "./human-behavior";
 import { ScraperError } from "./types";
-
-const LOGIN_STEP_TIMEOUT = 60000;
-
-async function clickFacebookLoginButton(page: Page): Promise<void> {
-  const submitInput = page.locator('input[type="submit"]').first();
-  const loginButton = page.locator('button[name="login"]').first();
-
-  let submit: ReturnType<Page["locator"]>;
-  if ((await submitInput.count()) > 0) {
-    submit = submitInput;
-  } else if ((await loginButton.count()) > 0) {
-    submit = loginButton;
-  } else {
-    throw new ScraperError("Login button not found on mobile login page", "LOGIN");
-  }
-
-  await submit.scrollIntoViewIfNeeded();
-  await randomDelay(300, 700);
-
-  await Promise.all([
-    page
-      .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 })
-      .catch(() => {}),
-    submit.click({ force: true }),
-  ]);
-  await page.waitForLoadState("networkidle").catch(() => {});
-}
 
 export async function isTwoFactorPage(page: Page): Promise<boolean> {
   const url = page.url();
@@ -80,15 +53,6 @@ export async function loginToFacebook(page: Page): Promise<void> {
     );
   }
 
-  await page.goto("https://www.facebook.com/", {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
-  await page.waitForLoadState("networkidle");
-  await randomDelay();
-
-  if (await isLoggedIn(page)) return;
-
   const cookies = await loadFbCookies();
   if (cookies.length > 0) {
     await page.context().addCookies(cookies);
@@ -96,7 +60,7 @@ export async function loginToFacebook(page: Page): Promise<void> {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("networkidle").catch(() => {});
     await randomDelay();
     if (await isLoggedIn(page)) return;
   }
@@ -105,22 +69,38 @@ export async function loginToFacebook(page: Page): Promise<void> {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(5000);
 
-  const emailInput = page.locator('input[name="email"]').first();
-  await emailInput.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
-  await randomMouseMove(page);
-  await emailInput.fill(email);
-  await randomDelay(500, 1200);
+  await page.evaluate(
+    (credentials) => {
+      const emailInput = document.querySelector(
+        'input[name="email"]'
+      ) as HTMLInputElement;
+      const passInput = document.querySelector(
+        'input[name="pass"]'
+      ) as HTMLInputElement;
+      const submitBtn = document.querySelector(
+        'input[type="submit"], button[name="login"]'
+      ) as HTMLElement;
 
-  const passInput = page.locator('input[name="pass"]').first();
-  await passInput.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
-  await passInput.fill(password);
-  await randomDelay(500, 1200);
+      if (emailInput) {
+        emailInput.value = credentials.email;
+        emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+        emailInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (passInput) {
+        passInput.value = credentials.password;
+        passInput.dispatchEvent(new Event("input", { bubbles: true }));
+        passInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (submitBtn) {
+        submitBtn.click();
+      }
+    },
+    { email, password }
+  );
 
-  await clickFacebookLoginButton(page);
-  await randomDelay(2000, 4000);
+  await page.waitForTimeout(5000);
 
   await page.goto("https://www.facebook.com/marketplace", {
     waitUntil: "domcontentloaded",
