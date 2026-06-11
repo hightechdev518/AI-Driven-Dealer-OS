@@ -101,6 +101,9 @@ export async function loginToFacebook(page: Page): Promise<void> {
   );
 
   await page.waitForTimeout(5000);
+  await page.screenshot({ path: "/tmp/fb-mobile-after.png" });
+  console.log("Mobile URL after login attempt:", page.url());
+  console.log("Mobile title:", await page.title());
 
   await page.goto("https://www.facebook.com/marketplace", {
     waitUntil: "domcontentloaded",
