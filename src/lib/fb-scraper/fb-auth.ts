@@ -3,6 +3,35 @@ import { loadFbCookies, saveFbCookies } from "./cookies";
 import { randomDelay, randomMouseMove } from "./human-behavior";
 import { ScraperError } from "./types";
 
+const LOGIN_STEP_TIMEOUT = 60000;
+
+const LOGIN_BUTTON_SELECTORS = [
+  'button[name="login"]',
+  'input[name="login"]',
+  'button[type="submit"]',
+  '[data-testid="royal_login_button"]',
+  'text="Log in"',
+  'text="Log In"',
+];
+
+async function clickFacebookLoginButton(page: Page): Promise<void> {
+  for (const selector of LOGIN_BUTTON_SELECTORS) {
+    const button = page.locator(selector).first();
+    try {
+      await button.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
+      await button.click();
+      return;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new ScraperError(
+    "Could not find Facebook login button",
+    "LOGIN"
+  );
+}
+
 export async function isTwoFactorPage(page: Page): Promise<boolean> {
   const url = page.url();
   if (
@@ -57,6 +86,7 @@ export async function loginToFacebook(page: Page): Promise<void> {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
+  await page.waitForLoadState("networkidle");
   await randomDelay();
 
   if (await isLoggedIn(page)) return;
@@ -68,6 +98,7 @@ export async function loginToFacebook(page: Page): Promise<void> {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
+    await page.waitForLoadState("networkidle");
     await randomDelay();
     if (await isLoggedIn(page)) return;
   }
@@ -76,24 +107,21 @@ export async function loginToFacebook(page: Page): Promise<void> {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
+  await page.waitForLoadState("networkidle");
   await randomDelay();
 
-  const emailInput = page.locator('input[name="email"], input#email').first();
-  const passInput = page.locator('input[name="pass"], input#pass').first();
-
-  await emailInput.waitFor({ state: "visible", timeout: 15000 });
+  const emailInput = page.locator('input[name="email"], #email').first();
+  await emailInput.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
   await randomMouseMove(page);
   await emailInput.fill(email);
   await randomDelay(500, 1200);
+
+  const passInput = page.locator('input[name="pass"], #pass').first();
+  await passInput.waitFor({ state: "visible", timeout: LOGIN_STEP_TIMEOUT });
   await passInput.fill(password);
   await randomDelay(500, 1200);
 
-  const loginButton = page
-    .locator(
-      'button[name="login"], button[type="submit"], [data-testid="royal_login_button"]'
-    )
-    .first();
-  await loginButton.click();
+  await clickFacebookLoginButton(page);
   await randomDelay(2000, 4000);
 
   if (await isTwoFactorPage(page)) {
