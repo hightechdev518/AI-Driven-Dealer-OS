@@ -65,51 +65,26 @@ export async function loginToFacebook(page: Page): Promise<void> {
     if (await isLoggedIn(page)) return;
   }
 
-  await page.goto("https://m.facebook.com/login", {
+  await page.goto("https://m.facebook.com", {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await page.waitForTimeout(5000);
+  await page.waitForLoadState("networkidle");
 
-  await page.evaluate((emailValue) => {
-    const el = document.querySelector(
-      'input[name="email"]'
-    ) as HTMLInputElement;
-    if (el) {
-      el.value = emailValue;
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-  }, process.env.FB_EMAIL!);
+  await page.fill('input[name="email"]', process.env.FB_EMAIL!);
+  await page.fill('input[name="pass"]', process.env.FB_PASSWORD!);
 
-  await page.waitForTimeout(500);
-
-  await page.evaluate((pass) => {
-    const el = document.querySelector('input[name="pass"]') as HTMLInputElement;
-    if (el) {
-      el.value = pass;
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-  }, process.env.FB_PASSWORD!);
-
-  await page.waitForTimeout(500);
-
-  await page.evaluate(() => {
-    const form = document.querySelector("form") as HTMLFormElement;
-    if (form) form.submit();
-  });
-
-  await page.waitForTimeout(5000);
-  await page.screenshot({ path: "/tmp/fb-mobile-after.png" });
-  console.log("Mobile URL after login attempt:", page.url());
-  console.log("Mobile title:", await page.title());
-
-  await page.goto("https://www.facebook.com/marketplace", {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
+  await Promise.all([
+    page
+      .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 })
+      .catch(() => {}),
+    page.click(
+      'input[value="Log In"], button:has-text("Log In"), input[type="submit"]'
+    ),
+  ]);
   await page.waitForLoadState("networkidle").catch(() => {});
+
+  await page.screenshot({ path: "/tmp/fb-mobile-after.png" });
 
   if (await isTwoFactorPage(page)) {
     throw new ScraperError(
@@ -125,7 +100,8 @@ export async function loginToFacebook(page: Page): Promise<void> {
     );
   }
 
-  if (!(await isLoggedIn(page))) {
+  const marketplaceLink = page.locator('a[href*="/marketplace"]');
+  if ((await marketplaceLink.count()) === 0) {
     throw new ScraperError(
       "Facebook login failed. Check FB_EMAIL and FB_PASSWORD.",
       "LOGIN"
