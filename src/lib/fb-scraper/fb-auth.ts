@@ -42,27 +42,12 @@ export async function isLoggedIn(page: Page): Promise<boolean> {
   return (await loggedInSignals.count()) > 0;
 }
 
-const LOGIN_BUTTON_SELECTORS = [
-  'input[type="submit"]',
-  'button[name="login"]',
-  '[data-testid="royal_login_button"]',
-  'button:has-text("Log in")',
-  'button:has-text("Log In")',
-];
-
-async function clickLoginButtonFallback(page: Page): Promise<void> {
-  for (const selector of LOGIN_BUTTON_SELECTORS) {
-    const button = page.locator(selector).first();
-    if ((await button.count()) === 0) continue;
-
-    try {
-      await button.click({ force: true });
-      await page.waitForTimeout(3000);
-      return;
-    } catch {
-      continue;
-    }
-  }
+function isPostLoginUrl(url: string): boolean {
+  return (
+    url.includes("facebook.com") &&
+    !url.includes("/login") &&
+    !url.includes("checkpoint")
+  );
 }
 
 export async function loginToFacebook(page: Page): Promise<void> {
@@ -88,28 +73,25 @@ export async function loginToFacebook(page: Page): Promise<void> {
     if (await isLoggedIn(page)) return;
   }
 
-  await page.goto("https://www.facebook.com/login", {
+  await page.goto("https://m.facebook.com/login", {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("networkidle").catch(() => {});
+
+  await page.fill('input[name="email"]', process.env.FB_EMAIL!);
+  await page.fill('input[name="pass"]', process.env.FB_PASSWORD!);
+
+  await Promise.all([
+    page
+      .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 })
+      .catch(() => {}),
+    page.click(
+      'input[type="submit"], button[name="login"], input[value="Log In"]',
+      { force: true }
+    ),
+  ]);
   await page.waitForTimeout(3000);
-
-  await page.fill("#email", process.env.FB_EMAIL!);
-  await page.waitForTimeout(1000);
-  await page.fill("#pass", process.env.FB_PASSWORD!);
-  await page.waitForTimeout(1000);
-
-  await page.keyboard.press("Enter");
-  await page.waitForTimeout(8000);
-
-  await page.screenshot({ path: "/tmp/fb-after-enter.png" });
-  console.log("URL:", page.url());
-  console.log("Title:", await page.title());
-
-  if (!(await isLoggedIn(page))) {
-    await clickLoginButtonFallback(page);
-  }
 
   if (await isTwoFactorPage(page)) {
     throw new ScraperError(
@@ -125,15 +107,7 @@ export async function loginToFacebook(page: Page): Promise<void> {
     );
   }
 
-  if (!(await isLoggedIn(page))) {
-    await page.goto("https://www.facebook.com/marketplace", {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-    await page.waitForLoadState("networkidle").catch(() => {});
-  }
-
-  if (!(await isLoggedIn(page))) {
+  if (!isPostLoginUrl(page.url())) {
     throw new ScraperError(
       "Facebook login failed. Check FB_EMAIL and FB_PASSWORD.",
       "LOGIN"
@@ -142,6 +116,12 @@ export async function loginToFacebook(page: Page): Promise<void> {
 
   const contextCookies = await page.context().cookies();
   await saveFbCookies(contextCookies);
+
+  await page.goto("https://www.facebook.com/marketplace", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await page.waitForLoadState("networkidle").catch(() => {});
 }
 
 export async function ensureLoggedIn(page: Page): Promise<void> {
