@@ -80,18 +80,24 @@ export async function loginToFacebook(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle").catch(() => {});
 
   await page.fill('input[name="email"]', process.env.FB_EMAIL!);
+  await page.waitForTimeout(1000);
   await page.fill('input[name="pass"]', process.env.FB_PASSWORD!);
+  await page.waitForTimeout(1000);
 
-  await Promise.all([
-    page
-      .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 })
-      .catch(() => {}),
-    page.click(
-      'input[type="submit"], button[name="login"], input[value="Log In"]',
-      { force: true }
-    ),
-  ]);
-  await page.waitForTimeout(3000);
+  await page.locator('input[name="pass"]').press("Enter");
+  await page.waitForTimeout(8000);
+
+  const currentUrl = page.url();
+  if (currentUrl.includes("login")) {
+    await page.evaluate(() => {
+      const form = document.querySelector("form") as HTMLFormElement;
+      if (form) form.submit();
+    });
+    await page.waitForTimeout(5000);
+  }
+
+  await page.screenshot({ path: "/tmp/fb-mobile-after.png" });
+  console.log("After login URL:", page.url());
 
   if (await isTwoFactorPage(page)) {
     throw new ScraperError(
