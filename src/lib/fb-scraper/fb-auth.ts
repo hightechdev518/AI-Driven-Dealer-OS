@@ -122,6 +122,18 @@ export async function loginToFacebook(page: Page): Promise<void> {
       );
     }
 
+    try {
+      const hasCaptcha = await page.$('iframe[src*="recaptcha"]');
+      if (hasCaptcha) {
+        console.log("CAPTCHA on 2FA page, solving...");
+        await solve(page);
+        console.log("CAPTCHA solved on 2FA page!");
+        await page.waitForTimeout(3000);
+      }
+    } catch (e) {
+      console.log("2FA CAPTCHA solve error:", e);
+    }
+
     await page.screenshot({ path: "/tmp/fb-2fa-before.png" });
     console.log("2FA page URL:", page.url());
     console.log("2FA page title:", await page.title());
