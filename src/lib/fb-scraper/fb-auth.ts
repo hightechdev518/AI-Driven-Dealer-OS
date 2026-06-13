@@ -121,13 +121,29 @@ export async function loginToFacebook(page: Page): Promise<void> {
         "TWO_FACTOR"
       );
     }
-    const { otp: token } = await TOTP.generate(secret);
-    console.log("2FA code:", token);
+
+    await page.screenshot({ path: "/tmp/fb-2fa-before.png" });
+    console.log("2FA page URL:", page.url());
+    console.log("2FA page title:", await page.title());
+
+    const inputs = await page.$$eval("input", (els) =>
+      els.map((el) => ({
+        type: el.getAttribute("type"),
+        name: el.getAttribute("name"),
+        id: el.id,
+        placeholder: el.getAttribute("placeholder"),
+      }))
+    );
+    console.log("Inputs on 2FA page:", JSON.stringify(inputs));
 
     await page.waitForSelector(
       'input[name="approvals_code"], input[type="text"], input[type="number"]',
-      { timeout: 10000 }
+      { timeout: 30000 }
     );
+
+    const { otp: token } = await TOTP.generate(secret);
+    console.log("2FA code:", token);
+
     await page.fill(
       'input[name="approvals_code"], input[type="text"], input[type="number"]',
       token
