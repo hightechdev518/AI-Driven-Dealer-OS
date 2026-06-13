@@ -1,5 +1,6 @@
 import type { Page } from "playwright-core";
 import { solve } from "recaptcha-solver";
+import { TOTP } from "totp-generator";
 import { loadFbCookies, saveFbCookies } from "./cookies";
 import { randomDelay } from "./human-behavior";
 import { ScraperError } from "./types";
@@ -110,6 +111,34 @@ export async function loginToFacebook(page: Page): Promise<void> {
 
   await page.screenshot({ path: "/tmp/fb-mobile-after.png" });
   console.log("After login URL:", page.url());
+
+  if (page.url().includes("two_step_verification")) {
+    console.log("2FA required, generating code...");
+    const secret = process.env.FB_2FA;
+    if (!secret) {
+      throw new ScraperError(
+        "Facebook requires 2FA but FB_2FA is not set in environment",
+        "TWO_FACTOR"
+      );
+    }
+    const { otp: token } = await TOTP.generate(secret);
+    console.log("2FA code:", token);
+
+    await page.waitForSelector(
+      'input[name="approvals_code"], input[type="text"], input[type="number"]',
+      { timeout: 10000 }
+    );
+    await page.fill(
+      'input[name="approvals_code"], input[type="text"], input[type="number"]',
+      token
+    );
+    await page.waitForTimeout(1000);
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(5000);
+
+    await page.screenshot({ path: "/tmp/fb-2fa.png" });
+    console.log("After 2FA URL:", page.url());
+  }
 
   if (await isTwoFactorPage(page)) {
     throw new ScraperError(

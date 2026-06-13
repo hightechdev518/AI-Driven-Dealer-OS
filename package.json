@@ -26,7 +26,8 @@
     "react-dom": "^18",
     "recaptcha-solver": "^0.3.0",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "totp-generator": "^2.0.1"
   },
   "devDependencies": {
     "@types/node": "^20",
