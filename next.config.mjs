@@ -2,6 +2,9 @@
 const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: [
+      "recaptcha-solver",
+      "vosk-koffi",
+      "koffi",
       "playwright",
       "playwright-core",
       "playwright-extra",
@@ -10,13 +13,19 @@ const nextConfig = {
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
-      config.externals.push({
-        "playwright-extra": "commonjs playwright-extra",
-        "puppeteer-extra-plugin-stealth":
-          "commonjs puppeteer-extra-plugin-stealth",
-        playwright: "commonjs playwright",
-        "playwright-core": "commonjs playwright-core",
-      });
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : []),
+        "recaptcha-solver",
+        "vosk-koffi",
+        "koffi",
+        {
+          "playwright-extra": "commonjs playwright-extra",
+          "puppeteer-extra-plugin-stealth":
+            "commonjs puppeteer-extra-plugin-stealth",
+          playwright: "commonjs playwright",
+          "playwright-core": "commonjs playwright-core",
+        },
+      ];
     }
     return config;
   },
