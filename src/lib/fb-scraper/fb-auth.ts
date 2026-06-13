@@ -1,4 +1,5 @@
 import type { Page } from "playwright-core";
+import { solve } from "recaptcha-solver";
 import { loadFbCookies, saveFbCookies } from "./cookies";
 import { randomDelay } from "./human-behavior";
 import { ScraperError } from "./types";
@@ -73,11 +74,22 @@ export async function loginToFacebook(page: Page): Promise<void> {
     if (await isLoggedIn(page)) return;
   }
 
-  await page.goto("https://m.facebook.com/login", {
+  await page.goto("https://www.facebook.com/login", {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
   await page.waitForLoadState("networkidle").catch(() => {});
+
+  try {
+    const hasCaptcha = await page.$('iframe[src*="recaptcha"]');
+    if (hasCaptcha) {
+      console.log("CAPTCHA detected, solving automatically...");
+      await solve(page);
+      console.log("CAPTCHA solved!");
+    }
+  } catch (e) {
+    console.log("CAPTCHA solve attempted:", e);
+  }
 
   await page.fill('input[name="email"]', process.env.FB_EMAIL!);
   await page.waitForTimeout(1000);
