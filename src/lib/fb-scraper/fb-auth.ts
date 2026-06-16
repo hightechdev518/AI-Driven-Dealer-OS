@@ -21,8 +21,8 @@ function mapExtensionCookies(cookies: BrowserExtensionCookie[]): Cookie[] {
     domain: c.domain,
     path: c.path,
     expires: c.expirationDate ?? -1,
-    httpOnly: c.httpOnly,
-    secure: c.secure,
+    httpOnly: c.httpOnly ?? false,
+    secure: c.secure ?? false,
     sameSite:
       c.sameSite === "no_restriction"
         ? "None"
