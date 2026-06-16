@@ -20,7 +20,7 @@ function mapExtensionCookies(cookies: BrowserExtensionCookie[]): Cookie[] {
     value: c.value,
     domain: c.domain,
     path: c.path,
-    expires: c.expirationDate,
+    expires: c.expirationDate ?? -1,
     httpOnly: c.httpOnly,
     secure: c.secure,
     sameSite:
