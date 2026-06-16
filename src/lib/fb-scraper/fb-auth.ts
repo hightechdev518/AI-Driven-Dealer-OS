@@ -1,9 +1,38 @@
-import type { Page } from "playwright-core";
-import { solve } from "recaptcha-solver";
-import { TOTP } from "totp-generator";
-import { loadFbCookies, saveFbCookies } from "./cookies";
+import type { Cookie, Page } from "playwright-core";
+import { saveFbCookies } from "./cookies";
 import { randomDelay } from "./human-behavior";
 import { ScraperError } from "./types";
+
+type BrowserExtensionCookie = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expirationDate?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: string;
+};
+
+function mapExtensionCookies(cookies: BrowserExtensionCookie[]): Cookie[] {
+  return cookies.map((c) => ({
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    path: c.path,
+    expires: c.expirationDate,
+    httpOnly: c.httpOnly,
+    secure: c.secure,
+    sameSite:
+      c.sameSite === "no_restriction"
+        ? "None"
+        : c.sameSite === "lax"
+          ? "Lax"
+          : c.sameSite === "strict"
+            ? "Strict"
+            : "None",
+  }));
+}
 
 export async function isTwoFactorPage(page: Page): Promise<boolean> {
   const url = page.url();
@@ -44,166 +73,80 @@ export async function isLoggedIn(page: Page): Promise<boolean> {
   return (await loggedInSignals.count()) > 0;
 }
 
-function isPostLoginUrl(url: string): boolean {
-  return (
-    url.includes("facebook.com") &&
-    !url.includes("/login") &&
-    !url.includes("checkpoint")
-  );
-}
-
 export async function loginToFacebook(page: Page): Promise<void> {
-  const email = process.env.FB_EMAIL;
-  const password = process.env.FB_PASSWORD;
-
-  if (!email || !password) {
+  const rawCookies = process.env.FB_COOKIES;
+  if (!rawCookies) {
     throw new ScraperError(
-      "Missing FB_EMAIL or FB_PASSWORD in environment",
+      "Missing FB_COOKIES in environment",
       "CONFIG"
     );
   }
 
-  const cookies = await loadFbCookies();
-  if (cookies.length > 0) {
-    await page.context().addCookies(cookies);
-    await page.goto("https://www.facebook.com/marketplace", {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-    await page.waitForLoadState("networkidle").catch(() => {});
-    await randomDelay();
-    if (await isLoggedIn(page)) return;
+  let parsedCookies: BrowserExtensionCookie[];
+  try {
+    parsedCookies = JSON.parse(rawCookies) as BrowserExtensionCookie[];
+  } catch {
+    throw new ScraperError(
+      "FB_COOKIES is not valid JSON",
+      "CONFIG"
+    );
   }
 
-  await page.goto("https://www.facebook.com/login", {
+  if (!Array.isArray(parsedCookies) || parsedCookies.length === 0) {
+    throw new ScraperError(
+      "FB_COOKIES must be a non-empty JSON array",
+      "CONFIG"
+    );
+  }
+
+  await page.goto("https://www.facebook.com", {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
   await page.waitForLoadState("networkidle").catch(() => {});
 
-  try {
-    const hasCaptcha = await page.$('iframe[src*="recaptcha"]');
-    if (hasCaptcha) {
-      console.log("CAPTCHA detected, solving automatically...");
-      await solve(page);
-      console.log("CAPTCHA solved!");
-    }
-  } catch (e) {
-    console.log("CAPTCHA solve attempted:", e);
-  }
+  await page.context().clearCookies();
 
-  await page.fill('input[name="email"]', process.env.FB_EMAIL!);
-  await page.waitForTimeout(1000);
-  await page.fill('input[name="pass"]', process.env.FB_PASSWORD!);
-  await page.waitForTimeout(1000);
-
-  await page.locator('input[name="pass"]').press("Enter");
-  await page.waitForTimeout(8000);
-
-  const currentUrl = page.url();
-  if (currentUrl.includes("login")) {
-    await page.evaluate(() => {
-      const form = document.querySelector("form") as HTMLFormElement;
-      if (form) form.submit();
-    });
-    await page.waitForTimeout(5000);
-  }
-
-  await page.screenshot({ path: "/tmp/fb-mobile-after.png" });
-  console.log("After login URL:", page.url());
-
-  if (page.url().includes("two_step_verification")) {
-    console.log("2FA required, generating code...");
-    const secret = process.env.FB_2FA;
-    if (!secret) {
-      throw new ScraperError(
-        "Facebook requires 2FA but FB_2FA is not set in environment",
-        "TWO_FACTOR"
-      );
-    }
-
-    try {
-      const hasCaptcha = await page.$('iframe[src*="recaptcha"]');
-      if (hasCaptcha) {
-        console.log("CAPTCHA on 2FA page, solving...");
-        await solve(page);
-        console.log("CAPTCHA solved on 2FA page!");
-        await page.waitForTimeout(3000);
-      }
-    } catch (e) {
-      console.log("2FA CAPTCHA solve error:", e);
-    }
-
-    await page.screenshot({ path: "/tmp/fb-2fa-before.png" });
-    console.log("2FA page URL:", page.url());
-    console.log("2FA page title:", await page.title());
-
-    const inputs = await page.$$eval("input", (els) =>
-      els.map((el) => ({
-        type: el.getAttribute("type"),
-        name: el.getAttribute("name"),
-        id: el.id,
-        placeholder: el.getAttribute("placeholder"),
-      }))
-    );
-    console.log("Inputs on 2FA page:", JSON.stringify(inputs));
-
-    await page.waitForSelector(
-      'input[name="approvals_code"], input[type="text"], input[type="number"]',
-      { timeout: 30000 }
-    );
-
-    const { otp: token } = await TOTP.generate(secret);
-    console.log("2FA code:", token);
-
-    await page.fill(
-      'input[name="approvals_code"], input[type="text"], input[type="number"]',
-      token
-    );
-    await page.waitForTimeout(1000);
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(5000);
-
-    await page.screenshot({ path: "/tmp/fb-2fa.png" });
-    console.log("After 2FA URL:", page.url());
-  }
-
-  if (await isTwoFactorPage(page)) {
-    throw new ScraperError(
-      "Facebook requires two-factor authentication. Check your phone to approve login, then retry.",
-      "TWO_FACTOR"
-    );
-  }
-
-  if (await isBlockedPage(page)) {
-    throw new ScraperError(
-      "Facebook blocked the login attempt. Try again later or verify the account in the Multilogin profile.",
-      "BLOCKED"
-    );
-  }
-
-  if (!isPostLoginUrl(page.url())) {
-    throw new ScraperError(
-      "Facebook login failed. Check FB_EMAIL and FB_PASSWORD.",
-      "LOGIN"
-    );
-  }
-
-  const contextCookies = await page.context().cookies();
-  await saveFbCookies(contextCookies);
+  const cookies = mapExtensionCookies(parsedCookies);
+  await page.context().addCookies(cookies);
 
   await page.goto("https://www.facebook.com/marketplace", {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
   await page.waitForLoadState("networkidle").catch(() => {});
+  await randomDelay();
+
+  if (await isTwoFactorPage(page)) {
+    throw new ScraperError(
+      "Facebook requires two-factor authentication. Update FB_COOKIES with a fresh session.",
+      "TWO_FACTOR"
+    );
+  }
+
+  if (await isBlockedPage(page)) {
+    throw new ScraperError(
+      "Facebook blocked access. Update FB_COOKIES with a fresh session.",
+      "BLOCKED"
+    );
+  }
+
+  if (!(await isLoggedIn(page))) {
+    throw new ScraperError(
+      "Cookie injection failed. FB_COOKIES may be expired or invalid.",
+      "LOGIN"
+    );
+  }
+
+  const contextCookies = await page.context().cookies();
+  await saveFbCookies(contextCookies);
 }
 
 export async function ensureLoggedIn(page: Page): Promise<void> {
   await loginToFacebook(page);
   if (await isTwoFactorPage(page)) {
     throw new ScraperError(
-      "Facebook requires two-factor authentication. Check your phone to approve login, then retry.",
+      "Facebook requires two-factor authentication. Update FB_COOKIES with a fresh session.",
       "TWO_FACTOR"
     );
   }
