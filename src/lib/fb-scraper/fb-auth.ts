@@ -1,6 +1,5 @@
 import type { Cookie, Page } from "playwright-core";
 import { saveFbCookies } from "./cookies";
-import { randomDelay } from "./human-behavior";
 import { ScraperError } from "./types";
 
 type BrowserExtensionCookie = {
@@ -60,17 +59,9 @@ export async function isBlockedPage(page: Page): Promise<boolean> {
 
 export async function isLoggedIn(page: Page): Promise<boolean> {
   const url = page.url();
-  if (url.includes("/login") || url.includes("checkpoint")) return false;
-
-  const loginForm = page.locator('input[name="email"], input#email');
-  if ((await loginForm.count()) > 0 && (await loginForm.first().isVisible())) {
-    return false;
-  }
-
-  const loggedInSignals = page.locator(
-    '[aria-label="Your profile"], [aria-label="Account"], a[href*="/marketplace"]'
+  return (
+    !url.includes("/login") && !url.includes("two_step_verification")
   );
-  return (await loggedInSignals.count()) > 0;
 }
 
 export async function loginToFacebook(page: Page): Promise<void> {
@@ -115,7 +106,16 @@ export async function loginToFacebook(page: Page): Promise<void> {
     timeout: 60000,
   });
   await page.waitForLoadState("networkidle").catch(() => {});
-  await randomDelay();
+
+  await page.screenshot({ path: "/tmp/fb-cookie-result.png" });
+  console.log("Cookie injection result URL:", page.url());
+
+  if (await isLoggedIn(page)) {
+    console.log("Cookie injection successful!");
+    const contextCookies = await page.context().cookies();
+    await saveFbCookies(contextCookies);
+    return;
+  }
 
   if (await isTwoFactorPage(page)) {
     throw new ScraperError(
@@ -131,15 +131,12 @@ export async function loginToFacebook(page: Page): Promise<void> {
     );
   }
 
-  if (!(await isLoggedIn(page))) {
+  if (page.url().includes("login")) {
     throw new ScraperError(
       "Cookie injection failed. FB_COOKIES may be expired or invalid.",
       "LOGIN"
     );
   }
-
-  const contextCookies = await page.context().cookies();
-  await saveFbCookies(contextCookies);
 }
 
 export async function ensureLoggedIn(page: Page): Promise<void> {
