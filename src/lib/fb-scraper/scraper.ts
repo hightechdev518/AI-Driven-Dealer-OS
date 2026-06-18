@@ -55,6 +55,44 @@ function buildSearchQuery(params: FbSearchParams): string {
   return parts.join(" ").trim();
 }
 
+function slugifyLocation(location: string): string {
+  if (!location.trim()) return "";
+  return location
+    .split(",")[0]
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function buildMarketplaceSearchUrl(params: FbSearchParams): string {
+  const query = buildSearchQuery(params);
+  if (!query) {
+    return "https://www.facebook.com/marketplace/category/vehicles";
+  }
+
+  const encodedQuery = encodeURIComponent(query).replace(/%20/g, "+");
+  const locationSlug = slugifyLocation(params.location);
+
+  if (locationSlug) {
+    return `https://www.facebook.com/marketplace/${locationSlug}/search?query=${encodedQuery}&exact=false`;
+  }
+
+  return `https://www.facebook.com/marketplace/search/?query=${encodedQuery}&exact=false`;
+}
+
+const LISTING_SELECTORS = [
+  'div[data-testid="marketplace-search-feed-item"]',
+  'div[class*="x9f619"][class*="x1n2onr6"]',
+  'a[href*="/marketplace/item/"]',
+] as const;
+
+async function logListingSelectorCounts(page: Page): Promise<void> {
+  for (const selector of LISTING_SELECTORS) {
+    const count = await page.locator(selector).count();
+    console.log(`Selector "${selector}" found ${count} elements`);
+  }
+}
+
 async function loginToFacebook(page: Page): Promise<void> {
   await ensureLoggedIn(page);
 }
@@ -187,15 +225,19 @@ async function extractListings(
         daysText: string;
         url: string;
       }> = [];
+      const seenUrls = new Set<string>();
 
-      const links = document.querySelectorAll('a[href*="/marketplace/item/"]');
-      links.forEach((link) => {
+      const addFromAnchor = (link: Element) => {
         const anchor = link as HTMLAnchorElement;
-        const href = anchor.href.split("?")[0];
-        if (!href || items.some((i) => i.url === href)) return;
+        const href = anchor.href?.split("?")[0];
+        if (!href || !href.includes("/marketplace/item/") || seenUrls.has(href)) {
+          return;
+        }
+        seenUrls.add(href);
 
         const aria = anchor.getAttribute("aria-label") || "";
         const card =
+          anchor.closest('[data-testid="marketplace-search-feed-item"]') ||
           anchor.closest('[data-testid="marketplace-item"]') ||
           anchor.closest('[role="article"]') ||
           anchor.parentElement?.parentElement;
@@ -216,7 +258,15 @@ async function extractListings(
           daysText: combined,
           url: href,
         });
-      });
+      };
+
+      document
+        .querySelectorAll(
+          'div[data-testid="marketplace-search-feed-item"] a[href*="/marketplace/item/"]'
+        )
+        .forEach(addFromAnchor);
+
+      document.querySelectorAll('a[href*="/marketplace/item/"]').forEach(addFromAnchor);
 
       return items;
     });
@@ -297,16 +347,20 @@ async function scrapeWithPage(
 
   await loginToFacebook(page);
 
-  const query = buildSearchQuery(params);
-  const searchUrl = query
-    ? `https://www.facebook.com/marketplace/search/?query=${encodeURIComponent(query)}`
-    : "https://www.facebook.com/marketplace/category/vehicles";
+  const searchUrl = buildMarketplaceSearchUrl(params);
+  console.log("Marketplace search URL:", searchUrl);
 
   await page.goto(searchUrl, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await randomDelay(2000, 3500);
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(3000);
+
+  await page.screenshot({ path: "/tmp/fb-marketplace.png" });
+  console.log("Marketplace URL:", page.url());
+  console.log("Marketplace title:", await page.title());
+  await logListingSelectorCounts(page);
 
   if (await isBlockedPage(page)) {
     if (!isRetry) {
@@ -323,12 +377,6 @@ async function scrapeWithPage(
   await setMarketplaceLocation(page, params.location, params.radius);
   await applyMarketplaceFilters(page, params);
   await humanScroll(page, 2);
-
-  const vehiclesLink = page.locator('a[href*="/marketplace/category/vehicles"]').first();
-  if ((await vehiclesLink.count()) > 0 && !page.url().includes("vehicles")) {
-    await vehiclesLink.click();
-    await randomDelay(2000, 3000);
-  }
 
   return extractListings(page, params);
 }
