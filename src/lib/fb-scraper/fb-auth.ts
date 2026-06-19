@@ -93,6 +93,15 @@ function parseCookiesFromEnv(): Cookie[] {
   return mapExtensionCookies(parsedCookies);
 }
 
+export async function exportCookies(page: Page): Promise<Cookie[]> {
+  return page.context().cookies();
+}
+
+export async function applyCookies(page: Page, cookies: Cookie[]): Promise<void> {
+  if (cookies.length === 0) return;
+  await page.context().addCookies(cookies);
+}
+
 export async function injectCookies(page: Page): Promise<void> {
   const cookies = parseCookiesFromEnv();
 
@@ -120,7 +129,7 @@ export async function loginToFacebook(page: Page): Promise<void> {
 
   if (await isLoggedIn(page)) {
     console.log("Cookie injection successful!");
-    const contextCookies = await page.context().cookies();
+    const contextCookies = await exportCookies(page);
     await saveFbCookies(contextCookies);
     return;
   }

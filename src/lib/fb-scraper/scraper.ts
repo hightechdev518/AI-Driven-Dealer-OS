@@ -1,5 +1,11 @@
-import type { Browser, BrowserContext, Page } from "playwright-core";
-import { ensureLoggedIn, injectCookies, isBlockedPage } from "./fb-auth";
+import type { Browser, BrowserContext, Cookie, Page } from "playwright-core";
+import {
+  applyCookies,
+  ensureLoggedIn,
+  exportCookies,
+  injectCookies,
+  isBlockedPage,
+} from "./fb-auth";
 import {
   humanScroll,
   randomDelay,
@@ -392,10 +398,27 @@ async function searchMarketplaceInPage(
   }
 }
 
+async function restoreSessionAndReload(
+  page: Page,
+  searchUrl: string,
+  savedCookies: Cookie[]
+): Promise<void> {
+  console.log("Re-injecting cookies and reloading page...");
+  await injectCookies(page);
+  await applyCookies(page, savedCookies);
+  await page.goto(searchUrl, {
+    waitUntil: "networkidle",
+    timeout: 60000,
+  });
+  await applyCookies(page, savedCookies);
+  await page.reload({ waitUntil: "networkidle", timeout: 60000 });
+}
+
 async function navigateToMarketplaceSearch(
   page: Page,
   params: FbSearchParams,
-  searchUrl: string
+  searchUrl: string,
+  savedCookies: Cookie[]
 ): Promise<void> {
   const searchedInPage = await searchMarketplaceInPage(page, params);
   if (searchedInPage && !page.url().includes("login")) {
@@ -403,19 +426,25 @@ async function navigateToMarketplaceSearch(
     return;
   }
 
+  console.log("Re-injecting saved cookies before search navigation...");
+  await applyCookies(page, savedCookies);
+
   console.log("Navigating to marketplace search URL:", searchUrl);
   await page.goto(searchUrl, {
     waitUntil: "networkidle",
     timeout: 60000,
   });
 
-  if (page.url().includes("login")) {
-    console.log("Search navigation lost session, re-injecting cookies...");
-    await injectCookies(page);
-    await page.goto(searchUrl, {
-      waitUntil: "networkidle",
-      timeout: 60000,
-    });
+  await applyCookies(page, savedCookies);
+  await page.reload({ waitUntil: "networkidle", timeout: 60000 });
+
+  let attempts = 0;
+  while (page.url().includes("login") && attempts < 3) {
+    attempts++;
+    console.log(
+      `Search navigation lost session (attempt ${attempts}/3), retrying cookie injection...`
+    );
+    await restoreSessionAndReload(page, searchUrl, savedCookies);
   }
 
   await page.waitForTimeout(5000);
@@ -434,15 +463,18 @@ async function scrapeWithPage(
 
   await loginToFacebook(page);
 
+  const savedCookies = await exportCookies(page);
+  console.log(`Saved ${savedCookies.length} cookies after login`);
+
   const searchUrl = buildMarketplaceSearchUrl(params);
   console.log("Marketplace search URL:", searchUrl);
   console.log("Starting search from:", page.url());
 
-  await navigateToMarketplaceSearch(page, params, searchUrl);
+  await navigateToMarketplaceSearch(page, params, searchUrl, savedCookies);
 
   if (page.url().includes("login")) {
     throw new ScraperError(
-      "Lost Facebook session when navigating to marketplace search. Update FB_COOKIES.",
+      "Facebook session could not be restored after cookie re-injection retries. Update FB_COOKIES.",
       "LOGIN"
     );
   }
