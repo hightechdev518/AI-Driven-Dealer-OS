@@ -339,12 +339,11 @@ async function runMarketplaceSearch(
 
   console.log(`Searching marketplace in-page for: ${query}`);
 
-  let searchInput = page
-    .locator('input[placeholder*="Search"], input[aria-label*="Search"]')
-    .first();
+  const marketplaceSearch = page.locator('input[aria-label="Search Marketplace"]');
+  let searchInput = marketplaceSearch;
 
   if ((await searchInput.count()) === 0) {
-    console.log("Search box not found, trying search icon...");
+    console.log("Search Marketplace input not found, trying search icon...");
     const searchIcon = page
       .locator(
         '[aria-label*="Search"], button[aria-label*="Search"], [role="button"][aria-label*="Search"]'
@@ -352,12 +351,17 @@ async function runMarketplaceSearch(
       .first();
 
     if ((await searchIcon.count()) > 0) {
-      await searchIcon.click();
-      await randomDelay(500, 1000);
-      searchInput = page
-        .locator('input[placeholder*="Search"], input[aria-label*="Search"]')
-        .first();
+      await searchIcon.click({ force: true });
+      await page.waitForTimeout(1000);
     }
+
+    searchInput = marketplaceSearch;
+  }
+
+  if ((await searchInput.count()) === 0) {
+    searchInput = page
+      .locator('input[placeholder*="Search"], input[aria-label*="Search"]')
+      .first();
   }
 
   if ((await searchInput.count()) === 0) {
@@ -367,12 +371,10 @@ async function runMarketplaceSearch(
     );
   }
 
-  await searchInput.click();
-  await randomDelay(300, 700);
+  await searchInput.click({ force: true });
   await searchInput.fill(query);
-  await randomDelay(500, 1000);
+  await page.waitForTimeout(1000);
   await page.keyboard.press("Enter");
-  await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForTimeout(5000);
 
   if (page.url().includes("login")) {
