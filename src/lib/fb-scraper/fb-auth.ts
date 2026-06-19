@@ -64,7 +64,7 @@ export async function isLoggedIn(page: Page): Promise<boolean> {
   );
 }
 
-export async function loginToFacebook(page: Page): Promise<void> {
+function parseCookiesFromEnv(): Cookie[] {
   const rawCookies = process.env.FB_COOKIES;
   if (!rawCookies) {
     throw new ScraperError(
@@ -90,6 +90,12 @@ export async function loginToFacebook(page: Page): Promise<void> {
     );
   }
 
+  return mapExtensionCookies(parsedCookies);
+}
+
+export async function injectCookies(page: Page): Promise<void> {
+  const cookies = parseCookiesFromEnv();
+
   await page.goto("https://www.facebook.com", {
     waitUntil: "domcontentloaded",
     timeout: 60000,
@@ -97,9 +103,11 @@ export async function loginToFacebook(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle").catch(() => {});
 
   await page.context().clearCookies();
-
-  const cookies = mapExtensionCookies(parsedCookies);
   await page.context().addCookies(cookies);
+}
+
+export async function loginToFacebook(page: Page): Promise<void> {
+  await injectCookies(page);
 
   await page.goto("https://www.facebook.com/marketplace", {
     waitUntil: "domcontentloaded",

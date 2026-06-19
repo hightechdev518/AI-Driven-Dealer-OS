@@ -1,5 +1,5 @@
 import type { Browser, BrowserContext, Page } from "playwright-core";
-import { ensureLoggedIn, isBlockedPage } from "./fb-auth";
+import { ensureLoggedIn, injectCookies, isBlockedPage } from "./fb-auth";
 import {
   humanScroll,
   randomDelay,
@@ -335,6 +335,93 @@ function extractLocation(text: string): string | null {
   return null;
 }
 
+async function logMarketplaceSearchState(page: Page): Promise<void> {
+  await page.screenshot({ path: "/tmp/fb-marketplace.png" });
+  console.log("Marketplace URL:", page.url());
+  console.log("Marketplace title:", await page.title());
+  await logListingSelectorCounts(page);
+}
+
+async function searchMarketplaceInPage(
+  page: Page,
+  params: FbSearchParams
+): Promise<boolean> {
+  const query = buildSearchQuery(params);
+  if (!query || !page.url().includes("marketplace")) {
+    return false;
+  }
+
+  const searchInput = page
+    .locator(
+      'input[aria-label*="Search"], input[placeholder*="Search"], [role="searchbox"] input, input[type="search"]'
+    )
+    .first();
+
+  if ((await searchInput.count()) === 0) {
+    console.log("No marketplace search input found on current page");
+    return false;
+  }
+
+  console.log("Searching within marketplace (staying on current page)...");
+  try {
+    await searchInput.click();
+    await randomDelay(300, 700);
+    await searchInput.fill(query);
+    await randomDelay(500, 1000);
+    await page.keyboard.press("Enter");
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(5000);
+
+    if (page.url().includes("login")) {
+      return false;
+    }
+
+    const hasResults =
+      page.url().includes("search") ||
+      (await page.locator('a[href*="/marketplace/item/"]').count()) > 0;
+
+    console.log(
+      hasResults
+        ? "In-page marketplace search succeeded"
+        : "In-page marketplace search did not load results"
+    );
+    return hasResults;
+  } catch (error) {
+    console.warn("In-page marketplace search failed:", error);
+    return false;
+  }
+}
+
+async function navigateToMarketplaceSearch(
+  page: Page,
+  params: FbSearchParams,
+  searchUrl: string
+): Promise<void> {
+  const searchedInPage = await searchMarketplaceInPage(page, params);
+  if (searchedInPage && !page.url().includes("login")) {
+    await logMarketplaceSearchState(page);
+    return;
+  }
+
+  console.log("Navigating to marketplace search URL:", searchUrl);
+  await page.goto(searchUrl, {
+    waitUntil: "networkidle",
+    timeout: 60000,
+  });
+
+  if (page.url().includes("login")) {
+    console.log("Search navigation lost session, re-injecting cookies...");
+    await injectCookies(page);
+    await page.goto(searchUrl, {
+      waitUntil: "networkidle",
+      timeout: 60000,
+    });
+  }
+
+  await page.waitForTimeout(5000);
+  await logMarketplaceSearchState(page);
+}
+
 async function scrapeWithPage(
   page: Page,
   params: FbSearchParams,
@@ -349,18 +436,16 @@ async function scrapeWithPage(
 
   const searchUrl = buildMarketplaceSearchUrl(params);
   console.log("Marketplace search URL:", searchUrl);
+  console.log("Starting search from:", page.url());
 
-  await page.goto(searchUrl, {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await page.waitForTimeout(3000);
+  await navigateToMarketplaceSearch(page, params, searchUrl);
 
-  await page.screenshot({ path: "/tmp/fb-marketplace.png" });
-  console.log("Marketplace URL:", page.url());
-  console.log("Marketplace title:", await page.title());
-  await logListingSelectorCounts(page);
+  if (page.url().includes("login")) {
+    throw new ScraperError(
+      "Lost Facebook session when navigating to marketplace search. Update FB_COOKIES.",
+      "LOGIN"
+    );
+  }
 
   if (await isBlockedPage(page)) {
     if (!isRetry) {
