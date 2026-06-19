@@ -1,11 +1,5 @@
-import type { Browser, BrowserContext, Cookie, Page } from "playwright-core";
-import {
-  applyCookies,
-  ensureLoggedIn,
-  exportCookies,
-  injectCookies,
-  isBlockedPage,
-} from "./fb-auth";
+import type { Browser, BrowserContext, Page } from "playwright-core";
+import { ensureLoggedIn, isBlockedPage } from "./fb-auth";
 import {
   humanScroll,
   randomDelay,
@@ -59,31 +53,6 @@ function buildSearchQuery(params: FbSearchParams): string {
   if (params.make) parts.push(params.make);
   if (params.model) parts.push(params.model);
   return parts.join(" ").trim();
-}
-
-function slugifyLocation(location: string): string {
-  if (!location.trim()) return "";
-  return location
-    .split(",")[0]
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-}
-
-function buildMarketplaceSearchUrl(params: FbSearchParams): string {
-  const query = buildSearchQuery(params);
-  if (!query) {
-    return "https://www.facebook.com/marketplace/category/vehicles";
-  }
-
-  const encodedQuery = encodeURIComponent(query).replace(/%20/g, "+");
-  const locationSlug = slugifyLocation(params.location);
-
-  if (locationSlug) {
-    return `https://www.facebook.com/marketplace/${locationSlug}/search?query=${encodedQuery}&exact=false`;
-  }
-
-  return `https://www.facebook.com/marketplace/search/?query=${encodedQuery}&exact=false`;
 }
 
 const LISTING_SELECTORS = [
@@ -348,106 +317,71 @@ async function logMarketplaceSearchState(page: Page): Promise<void> {
   await logListingSelectorCounts(page);
 }
 
-async function searchMarketplaceInPage(
+async function runMarketplaceSearch(
   page: Page,
   params: FbSearchParams
-): Promise<boolean> {
+): Promise<void> {
+  if (!page.url().includes("marketplace")) {
+    throw new ScraperError(
+      "Not on Facebook Marketplace after cookie injection",
+      "LOGIN"
+    );
+  }
+
   const query = buildSearchQuery(params);
-  if (!query || !page.url().includes("marketplace")) {
-    return false;
-  }
-
-  const searchInput = page
-    .locator(
-      'input[aria-label*="Search"], input[placeholder*="Search"], [role="searchbox"] input, input[type="search"]'
-    )
-    .first();
-
-  if ((await searchInput.count()) === 0) {
-    console.log("No marketplace search input found on current page");
-    return false;
-  }
-
-  console.log("Searching within marketplace (staying on current page)...");
-  try {
-    await searchInput.click();
-    await randomDelay(300, 700);
-    await searchInput.fill(query);
-    await randomDelay(500, 1000);
-    await page.keyboard.press("Enter");
+  if (!query) {
+    console.log("No search query provided, using current marketplace page");
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(5000);
-
-    if (page.url().includes("login")) {
-      return false;
-    }
-
-    const hasResults =
-      page.url().includes("search") ||
-      (await page.locator('a[href*="/marketplace/item/"]').count()) > 0;
-
-    console.log(
-      hasResults
-        ? "In-page marketplace search succeeded"
-        : "In-page marketplace search did not load results"
-    );
-    return hasResults;
-  } catch (error) {
-    console.warn("In-page marketplace search failed:", error);
-    return false;
-  }
-}
-
-async function restoreSessionAndReload(
-  page: Page,
-  searchUrl: string,
-  savedCookies: Cookie[]
-): Promise<void> {
-  console.log("Re-injecting cookies and reloading page...");
-  await injectCookies(page);
-  await applyCookies(page, savedCookies);
-  await page.goto(searchUrl, {
-    waitUntil: "networkidle",
-    timeout: 60000,
-  });
-  await applyCookies(page, savedCookies);
-  await page.reload({ waitUntil: "networkidle", timeout: 60000 });
-}
-
-async function navigateToMarketplaceSearch(
-  page: Page,
-  params: FbSearchParams,
-  searchUrl: string,
-  savedCookies: Cookie[]
-): Promise<void> {
-  const searchedInPage = await searchMarketplaceInPage(page, params);
-  if (searchedInPage && !page.url().includes("login")) {
     await logMarketplaceSearchState(page);
     return;
   }
 
-  console.log("Re-injecting saved cookies before search navigation...");
-  await applyCookies(page, savedCookies);
+  console.log(`Searching marketplace in-page for: ${query}`);
 
-  console.log("Navigating to marketplace search URL:", searchUrl);
-  await page.goto(searchUrl, {
-    waitUntil: "networkidle",
-    timeout: 60000,
-  });
+  let searchInput = page
+    .locator('input[placeholder*="Search"], input[aria-label*="Search"]')
+    .first();
 
-  await applyCookies(page, savedCookies);
-  await page.reload({ waitUntil: "networkidle", timeout: 60000 });
+  if ((await searchInput.count()) === 0) {
+    console.log("Search box not found, trying search icon...");
+    const searchIcon = page
+      .locator(
+        '[aria-label*="Search"], button[aria-label*="Search"], [role="button"][aria-label*="Search"]'
+      )
+      .first();
 
-  let attempts = 0;
-  while (page.url().includes("login") && attempts < 3) {
-    attempts++;
-    console.log(
-      `Search navigation lost session (attempt ${attempts}/3), retrying cookie injection...`
-    );
-    await restoreSessionAndReload(page, searchUrl, savedCookies);
+    if ((await searchIcon.count()) > 0) {
+      await searchIcon.click();
+      await randomDelay(500, 1000);
+      searchInput = page
+        .locator('input[placeholder*="Search"], input[aria-label*="Search"]')
+        .first();
+    }
   }
 
+  if ((await searchInput.count()) === 0) {
+    throw new ScraperError(
+      "Could not find marketplace search box on current page",
+      "SCRAPE"
+    );
+  }
+
+  await searchInput.click();
+  await randomDelay(300, 700);
+  await searchInput.fill(query);
+  await randomDelay(500, 1000);
+  await page.keyboard.press("Enter");
+  await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForTimeout(5000);
+
+  if (page.url().includes("login")) {
+    throw new ScraperError(
+      "Lost Facebook session during in-page marketplace search",
+      "LOGIN"
+    );
+  }
+
   await logMarketplaceSearchState(page);
 }
 
@@ -463,21 +397,10 @@ async function scrapeWithPage(
 
   await loginToFacebook(page);
 
-  const savedCookies = await exportCookies(page);
-  console.log(`Saved ${savedCookies.length} cookies after login`);
+  console.log("Staying on marketplace page, searching in-page...");
+  console.log("Current URL:", page.url());
 
-  const searchUrl = buildMarketplaceSearchUrl(params);
-  console.log("Marketplace search URL:", searchUrl);
-  console.log("Starting search from:", page.url());
-
-  await navigateToMarketplaceSearch(page, params, searchUrl, savedCookies);
-
-  if (page.url().includes("login")) {
-    throw new ScraperError(
-      "Facebook session could not be restored after cookie re-injection retries. Update FB_COOKIES.",
-      "LOGIN"
-    );
-  }
+  await runMarketplaceSearch(page, params);
 
   if (await isBlockedPage(page)) {
     if (!isRetry) {
