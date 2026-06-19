@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { kieChatCompletion } from "@/lib/kie-ai";
 import { DEFAULT_LOGIC_RULES } from "@/lib/logic-engine/default-rules";
 import { loadAllRules, saveCustomRule } from "@/lib/logic-engine/storage";
 import type { LogicRule } from "@/lib/logic-engine/types";
@@ -49,14 +49,12 @@ export async function POST(request: Request) {
 
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
-        { error: "OpenAI API key not configured" },
+        { error: "AI API key not configured" },
         { status: 500 }
       );
     }
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-    const completion = await openai.chat.completions.create({
+    const content = await kieChatCompletion({
       model: "gpt-4o",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
@@ -65,11 +63,6 @@ export async function POST(request: Request) {
       response_format: { type: "json_object" },
       temperature: 0.1,
     });
-
-    const content = completion.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error("No response from OpenAI");
-    }
 
     const parsed = JSON.parse(content) as Omit<
       LogicRule,

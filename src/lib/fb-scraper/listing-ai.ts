@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { kieChatCompletion } from "@/lib/kie-ai";
 import type { Vehicle } from "@/lib/types";
 
 export interface GeneratedListing {
@@ -63,31 +63,29 @@ export async function generateFbListing(
     return fallbackListing(vehicle);
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  try {
+    const content = await kieChatCompletion({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You write Facebook Marketplace vehicle listings for an independent used car dealer. Return only valid JSON.",
+        },
+        { role: "user", content: buildListingPrompt(vehicle) },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+    });
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "system",
-        content:
-          "You write Facebook Marketplace vehicle listings for an independent used car dealer. Return only valid JSON.",
-      },
-      { role: "user", content: buildListingPrompt(vehicle) },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.7,
-  });
-
-  const content = completion.choices[0]?.message?.content;
-  if (!content) return fallbackListing(vehicle);
-
-  const parsed = JSON.parse(content) as GeneratedListing;
-  return {
-    title: (parsed.title ?? fallbackListing(vehicle).title).slice(0, 100),
-    description: (parsed.description ?? fallbackListing(vehicle).description).slice(
-      0,
-      500
-    ),
-  };
+    const parsed = JSON.parse(content) as GeneratedListing;
+    return {
+      title: (parsed.title ?? fallbackListing(vehicle).title).slice(0, 100),
+      description: (
+        parsed.description ?? fallbackListing(vehicle).description
+      ).slice(0, 500),
+    };
+  } catch {
+    return fallbackListing(vehicle);
+  }
 }
