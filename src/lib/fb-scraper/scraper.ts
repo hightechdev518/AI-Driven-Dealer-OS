@@ -339,10 +339,11 @@ async function runMarketplaceSearch(
 
   console.log(`Searching marketplace in-page for: ${query}`);
 
-  const marketplaceSearch = page.locator('input[aria-label="Search Marketplace"]');
-  let searchInput = marketplaceSearch;
+  const marketplaceSearch = page
+    .locator('input[aria-label="Search Marketplace"]')
+    .first();
 
-  if ((await searchInput.count()) === 0) {
+  if ((await marketplaceSearch.count()) === 0) {
     console.log("Search Marketplace input not found, trying search icon...");
     const searchIcon = page
       .locator(
@@ -354,9 +355,11 @@ async function runMarketplaceSearch(
       await searchIcon.click({ force: true });
       await page.waitForTimeout(1000);
     }
-
-    searchInput = marketplaceSearch;
   }
+
+  let searchInput = page
+    .locator('input[aria-label="Search Marketplace"]')
+    .first();
 
   if ((await searchInput.count()) === 0) {
     searchInput = page
