@@ -14,6 +14,10 @@ const badgeVariants = cva(
         hold: "border-transparent bg-green-600 text-white",
         priceDrop: "border-transparent bg-yellow-500 text-black",
         auction: "border-transparent bg-black text-white border border-slate-600",
+        moneyTrap: "border-transparent bg-amber-600 text-white",
+        urgent: "border-transparent bg-orange-500 text-white",
+        buy: "border-transparent bg-emerald-600 text-white",
+        pass: "border-transparent bg-slate-600 text-white",
       },
     },
     defaultVariants: {

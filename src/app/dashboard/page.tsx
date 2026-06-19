@@ -19,9 +19,13 @@ import { getVehicleLabel } from "@/lib/vehicle-logic";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 const PRIORITY_ORDER: AiPriority[] = [
+  "URGENT",
   "LIST NOW",
-  "PRICE DROP",
   "AUCTION",
+  "PASS",
+  "PRICE DROP",
+  "MONEY TRAP",
+  "BUY",
   "HOLD",
 ];
 
@@ -30,6 +34,10 @@ const PRIORITY_LABELS: Record<AiPriority, string> = {
   HOLD: "🟢 HOLD",
   "PRICE DROP": "🟡 PRICE DROP",
   AUCTION: "⚫ AUCTION",
+  "MONEY TRAP": "💸 MONEY TRAP",
+  URGENT: "🚨 URGENT",
+  BUY: "✅ BUY",
+  PASS: "⛔ PASS",
 };
 
 export default function DashboardPage() {
@@ -135,7 +143,7 @@ export default function DashboardPage() {
         </Card>
       </Link>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         {PRIORITY_ORDER.map((priority) => (
           <Card key={priority}>
             <CardContent className="p-4">

@@ -5,12 +5,23 @@ import { cn } from "@/lib/utils";
 
 const variantMap: Record<
   AiPriority,
-  "listNow" | "hold" | "priceDrop" | "auction"
+  | "listNow"
+  | "hold"
+  | "priceDrop"
+  | "auction"
+  | "moneyTrap"
+  | "urgent"
+  | "buy"
+  | "pass"
 > = {
   "LIST NOW": "listNow",
   HOLD: "hold",
   "PRICE DROP": "priceDrop",
   AUCTION: "auction",
+  "MONEY TRAP": "moneyTrap",
+  URGENT: "urgent",
+  BUY: "buy",
+  PASS: "pass",
 };
 
 interface PriorityBadgeProps {

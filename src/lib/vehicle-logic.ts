@@ -45,6 +45,14 @@ export function computeActionRequired(priority: AiPriority): string {
       return "Reduce price to move inventory faster";
     case "AUCTION":
       return "Consider auction — too long in stock";
+    case "MONEY TRAP":
+      return "Money Trap — aging inventory, review pricing";
+    case "URGENT":
+      return "URGENT — respond to lead immediately";
+    case "BUY":
+      return "Strong hold — high profit potential";
+    case "PASS":
+      return "Pass — consider exit strategy";
     case "HOLD":
       return "Monitor market — no action needed";
   }
@@ -139,6 +147,14 @@ export function getPriorityEmoji(priority: AiPriority | null | undefined): strin
       return "🟡";
     case "AUCTION":
       return "⚫";
+    case "MONEY TRAP":
+      return "💸";
+    case "URGENT":
+      return "🚨";
+    case "BUY":
+      return "✅";
+    case "PASS":
+      return "⛔";
     default:
       return "";
   }

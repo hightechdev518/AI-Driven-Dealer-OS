@@ -10,6 +10,7 @@ import {
   MessageCircle,
   Menu,
   X,
+  Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: Car },
   { href: "/market-search", label: "Market Search", icon: Search },
+  { href: "/logic-engine", label: "Logic Engine", icon: Brain },
   { href: "/messenger", label: "Messenger", icon: MessageCircle, showBadge: true },
   { href: "/ai-entry", label: "AI Entry", icon: Sparkles },
 ];

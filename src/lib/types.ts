@@ -1,4 +1,12 @@
-export type AiPriority = "LIST NOW" | "HOLD" | "PRICE DROP" | "AUCTION";
+export type AiPriority =
+  | "LIST NOW"
+  | "HOLD"
+  | "PRICE DROP"
+  | "AUCTION"
+  | "MONEY TRAP"
+  | "URGENT"
+  | "BUY"
+  | "PASS";
 
 export type FbListingStatus = "draft" | "published" | "sold";
 

@@ -1,0 +1,77 @@
+import type { LogicRule } from "./types";
+
+export const DEFAULT_LOGIC_RULES: LogicRule[] = [
+  {
+    id: "money-trap",
+    name: "Money Trap",
+    summary: "Days In Stock > 45 → flag as Money Trap",
+    condition: "Days In Stock > 45",
+    action: "Flag as Money Trap",
+    category: "inventory",
+    active: true,
+    builtIn: true,
+  },
+  {
+    id: "auction",
+    name: "Auction",
+    summary: "Days In Stock > 75 AND Profit < $1,000 → Send To Auction",
+    condition: "Days In Stock > 75 AND Profit < $1,000",
+    action: "Send To Auction",
+    category: "inventory",
+    active: true,
+    builtIn: true,
+  },
+  {
+    id: "price-drop",
+    name: "Price Drop",
+    summary: "Days In Stock > 21 AND Leads < 3 → Reduce Price 5%",
+    condition: "Days In Stock > 21 AND Leads < 3",
+    action: "Reduce Price 5%",
+    category: "pricing",
+    active: true,
+    builtIn: true,
+  },
+  {
+    id: "price-increase",
+    name: "Price Increase",
+    summary:
+      "Views High AND Leads High AND Competition Low → Raise Price 3%",
+    condition: "Listed + Leads ≥ 3 + Competition Low",
+    action: "Raise Price 3%",
+    category: "pricing",
+    active: true,
+    builtIn: true,
+  },
+  {
+    id: "lead-response",
+    name: "Lead Response",
+    summary: "Lead Age > 15 min → URGENT",
+    condition: "Lead Age > 15 minutes",
+    action: "URGENT — respond immediately",
+    category: "leads",
+    active: true,
+    builtIn: true,
+  },
+  {
+    id: "buy-score",
+    name: "Buy Score",
+    summary:
+      "Expected Profit > $1,500 AND Days To Sell < 14 → BUY",
+    condition: "Expected Profit > $1,500 AND Days In Stock < 14",
+    action: "BUY — strong hold",
+    category: "acquisition",
+    active: true,
+    builtIn: true,
+  },
+  {
+    id: "do-not-buy",
+    name: "Do Not Buy",
+    summary:
+      "Expected Profit < $800 OR Days To Sell > 45 → PASS",
+    condition: "Expected Profit < $800 OR Days In Stock > 45",
+    action: "PASS — consider exit",
+    category: "acquisition",
+    active: true,
+    builtIn: true,
+  },
+];
