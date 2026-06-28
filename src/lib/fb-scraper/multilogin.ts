@@ -213,6 +213,17 @@ export async function getMultiloginConfig(): Promise<MultiloginConfig> {
 export async function startMultiloginProfile(
   config: MultiloginConfig
 ): Promise<MultiloginProfileSession> {
+  const stopUrl = `${MLX_LAUNCHER}/api/v2/profile/stop/${config.profileId}`;
+  try {
+    await fetch(stopUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${config.apiToken}` },
+    });
+    await new Promise((r) => setTimeout(r, 3000));
+  } catch {
+    // Ignore stop errors — profile may not be running
+  }
+
   const url = `${MLX_LAUNCHER}/api/v2/profile/f/${config.folderId}/p/${config.profileId}/start?automation_type=playwright&headless_mode=false`;
 
   let body: {
