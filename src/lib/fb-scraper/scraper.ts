@@ -1,5 +1,5 @@
 import type { Browser, BrowserContext, Page } from "playwright-core";
-import { ensureLoggedIn, isBlockedPage } from "./fb-auth";
+import { ensureLoggedIn, isBlockedPage, isSessionLost } from "./fb-auth";
 import {
   humanScroll,
   randomDelay,
@@ -16,7 +16,6 @@ import {
   isMarketplaceLocationRedirect,
   resolveLocationSlug,
   setMarketplaceLocationViaPicker,
-  snapRadiusMiles,
 } from "./marketplace-location";
 import {
   FbListing,
@@ -359,7 +358,7 @@ async function runMarketplaceSearchInPage(
   await page.keyboard.press("Enter");
   await page.waitForTimeout(5000);
 
-  if (page.url().includes("login")) {
+  if (await isSessionLost(page)) {
     throw new ScraperError(
       "Lost Facebook session during in-page marketplace search",
       "LOGIN"
@@ -369,6 +368,66 @@ async function runMarketplaceSearchInPage(
   await logMarketplaceSearchState(page);
 }
 
+async function ensureMarketplaceHome(page: Page): Promise<void> {
+  if (page.url().includes("marketplace") && !(await isSessionLost(page))) {
+    return;
+  }
+
+  await page.goto("https://www.facebook.com/marketplace", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await randomDelay(2000, 3000);
+
+  if (await isSessionLost(page)) {
+    throw new ScraperError(
+      "Lost Facebook session on Marketplace. Update FB_COOKIES or log in via the Multilogin profile.",
+      "LOGIN"
+    );
+  }
+}
+
+async function tryDirectMarketplaceUrl(
+  page: Page,
+  slug: string,
+  params: FbSearchParams
+): Promise<boolean> {
+  const searchUrl = buildMarketplaceSearchUrl(slug, params);
+  console.log(
+    `Trying direct marketplace URL for ${params.location} → slug "${slug}": ${searchUrl}`
+  );
+
+  try {
+    await page.goto(searchUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(3000);
+  } catch (error) {
+    console.warn("Direct marketplace URL navigation failed:", error);
+    return false;
+  }
+
+  if (await isSessionLost(page)) {
+    console.warn(
+      `Direct marketplace URL triggered login redirect (${page.url()}), falling back to in-page search`
+    );
+    return false;
+  }
+
+  if (isMarketplaceLocationRedirect(page.url(), slug)) {
+    console.warn(
+      `Direct marketplace URL lost location slug (now ${page.url()}), falling back to in-page search`
+    );
+    return false;
+  }
+
+  console.log(`Direct marketplace URL succeeded: ${page.url()}`);
+  return true;
+}
+
 async function navigateMarketplaceSearch(
   page: Page,
   params: FbSearchParams
@@ -376,54 +435,18 @@ async function navigateMarketplaceSearch(
   const query = buildSearchQuery(params);
   const location = params.location.trim();
 
-  if (location) {
+  await ensureMarketplaceHome(page);
+
+  if (location && query) {
     const slug = await resolveLocationSlug(location);
-    if (slug) {
-      const searchUrl = buildMarketplaceSearchUrl(slug, params);
-      console.log(
-        `Navigating marketplace search URL for ${location} → slug "${slug}" (radius ${snapRadiusMiles(params.radius)} mi): ${searchUrl}`
-      );
-      await page.goto(searchUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-      await page.waitForLoadState("networkidle").catch(() => {});
-      await page.waitForTimeout(4000);
-
-      if (page.url().includes("login")) {
-        throw new ScraperError(
-          "Lost Facebook session during marketplace search navigation",
-          "LOGIN"
-        );
-      }
-
-      if (isMarketplaceLocationRedirect(page.url(), slug)) {
-        console.warn(
-          `Marketplace slug "${slug}" was not accepted (redirected to ${page.url()}). Falling back to location picker.`
-        );
-        await setMarketplaceLocationViaPicker(page, location, params.radius);
-        if (query) {
-          await runMarketplaceSearchInPage(page, params);
-        }
-      } else if (!query) {
-        console.log("Location-only marketplace browse (no vehicle query)");
-        await logMarketplaceSearchState(page);
-      } else {
-        await logMarketplaceSearchState(page);
-      }
+    if (slug && (await tryDirectMarketplaceUrl(page, slug, params))) {
+      await logMarketplaceSearchState(page);
       return;
     }
+    await ensureMarketplaceHome(page);
+  }
 
-    console.log(
-      `Could not resolve slug for "${location}", using marketplace location picker`
-    );
-    if (!page.url().includes("marketplace")) {
-      await page.goto("https://www.facebook.com/marketplace", {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-      await page.waitForLoadState("networkidle").catch(() => {});
-    }
+  if (location) {
     const locationSet = await setMarketplaceLocationViaPicker(
       page,
       location,
@@ -434,12 +457,6 @@ async function navigateMarketplaceSearch(
         `Failed to apply location "${location}" — results may reflect the profile default city`
       );
     }
-    if (query) {
-      await runMarketplaceSearchInPage(page, params);
-    } else {
-      await logMarketplaceSearchState(page);
-    }
-    return;
   }
 
   if (query) {
@@ -447,9 +464,8 @@ async function navigateMarketplaceSearch(
     return;
   }
 
-  console.log("No search query or location provided, using current marketplace page");
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await page.waitForTimeout(5000);
+  console.log("No vehicle query provided, using current marketplace page");
+  await page.waitForTimeout(2000);
   await logMarketplaceSearchState(page);
 }
 

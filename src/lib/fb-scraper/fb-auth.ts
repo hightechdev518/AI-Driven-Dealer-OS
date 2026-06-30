@@ -58,10 +58,27 @@ export async function isBlockedPage(page: Page): Promise<boolean> {
 }
 
 export async function isLoggedIn(page: Page): Promise<boolean> {
-  const url = page.url();
-  return (
-    !url.includes("/login") && !url.includes("two_step_verification")
-  );
+  return !isLoginUrl(page.url());
+}
+
+export function isLoginUrl(url: string): boolean {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    return (
+      path === "/login" ||
+      path.startsWith("/login/") ||
+      path.includes("two_step_verification") ||
+      path.includes("checkpoint")
+    );
+  } catch {
+    return url.toLowerCase().includes("/login");
+  }
+}
+
+export async function isSessionLost(page: Page): Promise<boolean> {
+  if (isLoginUrl(page.url())) return true;
+  if (await isTwoFactorPage(page)) return true;
+  return false;
 }
 
 function parseCookiesFromEnv(): Cookie[] {
@@ -148,7 +165,7 @@ export async function loginToFacebook(page: Page): Promise<void> {
     );
   }
 
-  if (page.url().includes("login")) {
+  if (isLoginUrl(page.url())) {
     throw new ScraperError(
       "Cookie injection failed. FB_COOKIES may be expired or invalid.",
       "LOGIN"
