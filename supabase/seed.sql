@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS vehicles (
   fb_listed_at TIMESTAMPTZ,
   fb_listing_status TEXT CHECK (fb_listing_status IN ('draft', 'published', 'sold')),
   image_url TEXT,
+  image_urls JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

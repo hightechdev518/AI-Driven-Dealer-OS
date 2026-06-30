@@ -3,7 +3,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import { enrichVehicle, enrichVehicleRecord } from "@/lib/vehicle-logic";
 import { attachStoredImageUrls } from "@/lib/vehicle-image-store";
 import {
-  extractImageUrl,
+  extractVehicleImages,
   saveVehicleWithOptionalImage,
 } from "@/lib/vehicle-persistence";
 import type { VehicleFormData } from "@/lib/types";
@@ -34,14 +34,15 @@ export async function POST(request: Request) {
   try {
     const body: VehicleFormData = await request.json();
     const vehicleId = crypto.randomUUID();
-    const imageUrl = extractImageUrl(body);
+    const { imageUrls, coverUrl } = extractVehicleImages(body);
     const enriched = enrichVehicle({ ...body, id: vehicleId });
 
     const supabase = createServerClient();
     const { data, error } = await saveVehicleWithOptionalImage({
       vehicleId,
       enriched,
-      imageUrl,
+      imageUrls,
+      coverUrl,
       save: async (payload) =>
         supabase.from("vehicles").insert(payload).select().single(),
     });

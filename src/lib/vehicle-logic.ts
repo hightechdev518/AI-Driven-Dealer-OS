@@ -1,4 +1,5 @@
 import type { AiPriority, Vehicle, VehicleFormData } from "./types";
+import { withSyncedVehicleImages } from "./vehicle-images";
 
 export function computeDaysInStock(
   boughtDate: string | null | undefined,
@@ -89,6 +90,11 @@ export function enrichVehicle(data: VehicleFormData & { id?: string }): Omit<
   );
   const actionRequired = computeActionRequired(aiPriority);
 
+  const syncedImages = withSyncedVehicleImages({
+    image_url: data.image_url ?? null,
+    image_urls: data.image_urls ?? null,
+  });
+
   return {
     id: data.id,
     year: data.year ?? null,
@@ -121,7 +127,8 @@ export function enrichVehicle(data: VehicleFormData & { id?: string }): Omit<
     fb_listing_url: data.fb_listing_url ?? null,
     fb_listed_at: data.fb_listed_at ?? null,
     fb_listing_status: data.fb_listing_status ?? null,
-    image_url: data.image_url ?? null,
+    image_url: syncedImages.image_url,
+    image_urls: syncedImages.image_urls,
   };
 }
 
@@ -130,7 +137,14 @@ export function enrichVehicleRecord(vehicle: Vehicle): Vehicle {
     ...vehicle,
     days_in_stock: vehicle.days_in_stock,
   });
-  return { ...vehicle, ...enriched, id: vehicle.id, created_at: vehicle.created_at };
+  const synced = withSyncedVehicleImages({ ...vehicle, ...enriched });
+  return {
+    ...vehicle,
+    ...enriched,
+    ...synced,
+    id: vehicle.id,
+    created_at: vehicle.created_at,
+  };
 }
 
 export function getVehicleLabel(vehicle: Pick<Vehicle, "year" | "make" | "model">): string {

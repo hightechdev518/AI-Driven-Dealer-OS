@@ -5,13 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { VehicleImageUpload } from "@/components/vehicle-image-upload";
+import { VehicleImagesUpload } from "@/components/vehicle-images-upload";
+import { withSyncedVehicleImages } from "@/lib/vehicle-images";
 import type { VehicleFormData } from "@/lib/types";
 
 interface VehicleFormProps {
   initialData?: VehicleFormData;
   onSubmit: (data: VehicleFormData) => Promise<void>;
-  onImageUrlChange?: (url: string | null) => void;
+  onImagesChange?: (data: {
+    image_urls: string[];
+    image_url: string | null;
+  }) => void;
   submitLabel?: string;
 }
 
@@ -30,19 +34,40 @@ const emptyForm: VehicleFormData = {
   bought_date: new Date().toISOString().split("T")[0],
   notes: "",
   image_url: null,
+  image_urls: [],
 };
 
 export function VehicleForm({
   initialData,
   onSubmit,
-  onImageUrlChange,
+  onImagesChange,
   submitLabel = "Save Vehicle",
 }: VehicleFormProps) {
-  const [form, setForm] = useState<VehicleFormData>({
-    ...emptyForm,
-    ...initialData,
-  });
+  const [form, setForm] = useState<VehicleFormData>(() =>
+    withSyncedVehicleImages({
+      ...emptyForm,
+      ...initialData,
+    })
+  );
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const gallery =
+    form.image_urls ?? (form.image_url ? [form.image_url] : []);
+  const coverUrl = form.image_url ?? null;
+
+  const syncImages = (image_urls: string[], image_url: string | null) => {
+    const synced = withSyncedVehicleImages({ ...form, image_urls, image_url });
+    setForm((prev) => ({
+      ...prev,
+      image_urls: synced.image_urls,
+      image_url: synced.image_url,
+    }));
+    onImagesChange?.({
+      image_urls: synced.image_urls,
+      image_url: synced.image_url,
+    });
+  };
 
   const update = (key: keyof VehicleFormData, value: unknown) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -50,9 +75,17 @@ export function VehicleForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+
+    const synced = withSyncedVehicleImages(form);
+    if (synced.image_urls.length > 1 && !synced.image_url) {
+      setFormError("Choose a cover photo before saving.");
+      return;
+    }
+
     setLoading(true);
     try {
-      await onSubmit(form);
+      await onSubmit(synced);
     } finally {
       setLoading(false);
     }
@@ -60,13 +93,14 @@ export function VehicleForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <VehicleImageUpload
-        value={form.image_url}
-        onChange={(url) => {
-          update("image_url", url);
-          onImageUrlChange?.(url);
-        }}
+      <VehicleImagesUpload
+        images={gallery}
+        coverUrl={coverUrl}
+        onImagesChange={(image_urls) => syncImages(image_urls, coverUrl)}
+        onCoverChange={(image_url) => syncImages(gallery, image_url)}
       />
+
+      {formError && <p className="text-sm text-red-400">{formError}</p>}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>

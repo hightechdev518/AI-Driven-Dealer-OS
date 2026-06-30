@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Car } from "lucide-react";
 import type { Vehicle } from "@/lib/types";
 import { getVehicleLabel } from "@/lib/vehicle-logic";
+import { getVehicleCoverImage } from "@/lib/vehicle-images";
 
 interface VehiclePhotoProps {
   vehicle: Vehicle;
@@ -14,7 +15,7 @@ interface VehiclePhotoProps {
 export function VehiclePhoto({ vehicle, className, overlay }: VehiclePhotoProps) {
   const [failed, setFailed] = useState(false);
   const label = getVehicleLabel(vehicle);
-  const imageUrl = vehicle.image_url;
+  const imageUrl = getVehicleCoverImage(vehicle);
 
   useEffect(() => {
     setFailed(false);

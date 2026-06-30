@@ -1,9 +1,10 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 import type { Vehicle, VehicleFormData } from "@/lib/types";
+import { withSyncedVehicleImages } from "@/lib/vehicle-images";
 import { enrichVehicle } from "@/lib/vehicle-logic";
 import {
-  isMissingImageUrlColumn,
-  setStoredVehicleImageUrl,
+  isMissingImageColumn,
+  setStoredVehicleImages,
 } from "@/lib/vehicle-image-store";
 
 type EnrichedVehicle = ReturnType<typeof enrichVehicle>;
@@ -11,12 +12,14 @@ type EnrichedVehicle = ReturnType<typeof enrichVehicle>;
 export async function saveVehicleWithOptionalImage({
   vehicleId,
   enriched,
-  imageUrl,
+  imageUrls,
+  coverUrl,
   save,
 }: {
   vehicleId: string;
   enriched: EnrichedVehicle;
-  imageUrl?: string | null;
+  imageUrls: string[];
+  coverUrl?: string | null;
   save: (
     payload: EnrichedVehicle
   ) => PromiseLike<{ data: Vehicle | null; error: PostgrestError | null }>;
@@ -24,26 +27,38 @@ export async function saveVehicleWithOptionalImage({
   const firstAttempt = await save(enriched);
 
   if (!firstAttempt.error) {
-    if (imageUrl?.trim()) {
-      await setStoredVehicleImageUrl(vehicleId, null);
+    if (imageUrls.length > 0) {
+      await setStoredVehicleImages(vehicleId, null);
     }
     return firstAttempt;
   }
 
-  if (!isMissingImageUrlColumn(firstAttempt.error) || !("image_url" in enriched)) {
+  if (!isMissingImageColumn(firstAttempt.error)) {
     return firstAttempt;
   }
 
-  const fallbackUrl = imageUrl ?? enriched.image_url ?? null;
-  if (fallbackUrl) {
-    await setStoredVehicleImageUrl(vehicleId, fallbackUrl);
+  if (imageUrls.length > 0) {
+    await setStoredVehicleImages(vehicleId, imageUrls, coverUrl);
   }
 
-  const { image_url, ...withoutImageUrl } = enriched;
+  const { image_url, image_urls, ...withoutImages } = enriched;
   void image_url;
-  return save(withoutImageUrl as EnrichedVehicle);
+  void image_urls;
+
+  return save(withoutImages as EnrichedVehicle);
+}
+
+export function extractVehicleImages(body: VehicleFormData): {
+  imageUrls: string[];
+  coverUrl: string | null;
+} {
+  const synced = withSyncedVehicleImages(body);
+  return {
+    imageUrls: synced.image_urls,
+    coverUrl: synced.image_url,
+  };
 }
 
 export function extractImageUrl(body: VehicleFormData): string | null | undefined {
-  return body.image_url;
+  return withSyncedVehicleImages(body).image_url;
 }

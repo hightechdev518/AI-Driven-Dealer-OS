@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { FbListingBadge } from "@/components/fb-listing-badge";
 import { FbPublishDialog } from "@/components/fb-publish-dialog";
-import { VehiclePhoto } from "@/components/inventory/vehicle-photo";
+import { VehicleImageGallery } from "@/components/inventory/vehicle-image-gallery";
 import { VehicleStatsGrid } from "@/components/inventory/vehicle-stats-grid";
 import {
   Dialog,
@@ -30,6 +30,7 @@ import { Label } from "@/components/ui/label";
 import { VehicleForm } from "@/components/vehicle-form";
 import type { AiPriority, MarketComp, Vehicle, VehicleFormData } from "@/lib/types";
 import { generateAiSummary, getVehicleLabel } from "@/lib/vehicle-logic";
+import { getVehicleImages, withSyncedVehicleImages } from "@/lib/vehicle-images";
 import { cn, formatCurrency, formatPercent } from "@/lib/utils";
 
 type UrgencyLevel = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
@@ -143,10 +144,13 @@ export default function VehicleDetailPage() {
 
     if (!res.ok) throw new Error("Failed to update");
     const updated = await res.json();
-    setVehicle({
-      ...updated,
-      image_url: updated.image_url ?? data.image_url ?? null,
-    });
+    setVehicle(
+      withSyncedVehicleImages({
+        ...updated,
+        image_urls: updated.image_urls ?? data.image_urls,
+        image_url: updated.image_url ?? data.image_url,
+      })
+    );
     setEditing(false);
   };
 
@@ -208,6 +212,7 @@ export default function VehicleDetailPage() {
   const days = vehicle.days_in_stock ?? 0;
   const marketComparison = getMarketComparison(vehicle);
   const title = getVehicleLabel(vehicle);
+  const vehicleImages = getVehicleImages(vehicle);
   const subtitle = [
     vehicle.vin ? `VIN ${vehicle.vin}` : "No VIN",
     vehicle.mileage != null ? `${vehicle.mileage.toLocaleString()} mi` : null,
@@ -227,16 +232,11 @@ export default function VehicleDetailPage() {
 
       {/* Hero */}
       <section className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0b0e14] shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
-        <div className="relative aspect-[21/9] min-h-[200px] w-full overflow-hidden sm:aspect-[2/1]">
-          <VehiclePhoto
-            key={vehicle.image_url ?? vehicle.id}
-            vehicle={vehicle}
-            overlay
-            className="h-full w-full object-cover brightness-[1.3]"
-          />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b0e14]/95 via-[#0b0e14]/30 to-transparent" />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-transparent" />
-
+        <VehicleImageGallery
+          images={vehicleImages}
+          coverUrl={vehicle.image_url}
+          alt={title}
+        >
           <div className="absolute left-4 top-4 flex flex-wrap items-start gap-1.5">
             <span
               className={cn(
@@ -276,7 +276,7 @@ export default function VehicleDetailPage() {
               {vehicle.online_channel ? ` · ${vehicle.online_channel}` : ""}
             </p>
           </div>
-        </div>
+        </VehicleImageGallery>
 
         <div className="space-y-4 p-4 sm:p-6">
           <VehicleStatsGrid vehicle={vehicle} />
@@ -353,9 +353,15 @@ export default function VehicleDetailPage() {
           <VehicleForm
             initialData={vehicle}
             onSubmit={handleUpdate}
-            onImageUrlChange={(url) =>
+            onImagesChange={({ image_urls, image_url }) =>
               setVehicle((current) =>
-                current ? { ...current, image_url: url } : current
+                current
+                  ? withSyncedVehicleImages({
+                      ...current,
+                      image_urls,
+                      image_url,
+                    })
+                  : current
               )
             }
             submitLabel="Save Changes"

@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { enrichVehicle, enrichVehicleRecord } from "@/lib/vehicle-logic";
 import {
-  attachStoredImageUrl,
-  getStoredVehicleImageUrl,
+  attachStoredImages,
+  getStoredVehicleImagesRecord,
 } from "@/lib/vehicle-image-store";
 import {
-  extractImageUrl,
+  extractVehicleImages,
   saveVehicleWithOptionalImage,
 } from "@/lib/vehicle-persistence";
 import type { VehicleFormData } from "@/lib/types";
@@ -25,10 +25,10 @@ export async function GET(
 
     if (error) throw error;
 
-    const storedImageUrl = await getStoredVehicleImageUrl(params.id);
-    const withImage = attachStoredImageUrl(data, storedImageUrl);
+    const storedImages = await getStoredVehicleImagesRecord(params.id);
+    const withImages = attachStoredImages(data, storedImages);
 
-    return NextResponse.json(enrichVehicleRecord(withImage));
+    return NextResponse.json(enrichVehicleRecord(withImages));
   } catch (error) {
     console.error("GET /api/vehicles/[id]:", error);
     return NextResponse.json(
@@ -44,14 +44,15 @@ export async function PATCH(
 ) {
   try {
     const body: VehicleFormData = await request.json();
-    const imageUrl = extractImageUrl(body);
+    const { imageUrls, coverUrl } = extractVehicleImages(body);
     const enriched = enrichVehicle({ ...body, id: params.id });
 
     const supabase = createServerClient();
     const { data, error } = await saveVehicleWithOptionalImage({
       vehicleId: params.id,
       enriched,
-      imageUrl,
+      imageUrls,
+      coverUrl,
       save: async (payload) =>
         supabase
           .from("vehicles")
@@ -64,10 +65,10 @@ export async function PATCH(
     if (error) throw error;
     if (!data) throw new Error("Vehicle not found");
 
-    const storedImageUrl = await getStoredVehicleImageUrl(params.id);
-    const withImage = attachStoredImageUrl(data, storedImageUrl);
+    const storedImages = await getStoredVehicleImagesRecord(params.id);
+    const withImages = attachStoredImages(data, storedImages);
 
-    return NextResponse.json(enrichVehicleRecord(withImage));
+    return NextResponse.json(enrichVehicleRecord(withImages));
   } catch (error) {
     console.error("PATCH /api/vehicles/[id]:", error);
     return NextResponse.json(
