@@ -1,5 +1,4 @@
 import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { randomUUID } from "crypto";
 import { createServerClient } from "@/lib/supabase/server";
 import {
@@ -7,6 +6,10 @@ import {
   createAdminClient,
   ensureVehicleImagesBucket,
 } from "@/lib/supabase/admin";
+import {
+  primaryVehicleUploadDir,
+  vehicleUploadPublicPath,
+} from "@/lib/vehicle-upload-paths";
 
 async function uploadToSupabase(
   client: ReturnType<typeof createServerClient>,
@@ -21,13 +24,13 @@ async function uploadToSupabase(
 }
 
 async function saveLocalUpload(buffer: Buffer, ext: string): Promise<string> {
-  const dir = path.join(process.cwd(), "public", "uploads", "vehicles");
+  const dir = primaryVehicleUploadDir();
   await mkdir(dir, { recursive: true });
 
   const filename = `${randomUUID()}.${ext}`;
-  await writeFile(path.join(dir, filename), buffer);
+  await writeFile(`${dir}/${filename}`, buffer);
 
-  return `/uploads/vehicles/${filename}`;
+  return vehicleUploadPublicPath(filename);
 }
 
 export async function uploadVehicleImage(

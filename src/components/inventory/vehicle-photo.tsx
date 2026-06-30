@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Car } from "lucide-react";
 import type { Vehicle } from "@/lib/types";
 import { getVehicleLabel } from "@/lib/vehicle-logic";
@@ -14,8 +14,13 @@ interface VehiclePhotoProps {
 export function VehiclePhoto({ vehicle, className, overlay }: VehiclePhotoProps) {
   const [failed, setFailed] = useState(false);
   const label = getVehicleLabel(vehicle);
+  const imageUrl = vehicle.image_url;
 
-  if (!vehicle.image_url || failed) {
+  useEffect(() => {
+    setFailed(false);
+  }, [imageUrl]);
+
+  if (!imageUrl || failed) {
     return (
       <div
         className={`relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-slate-800 via-slate-900 to-[#0b0e14] ${className ?? ""}`}
@@ -34,7 +39,8 @@ export function VehiclePhoto({ vehicle, className, overlay }: VehiclePhotoProps)
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={vehicle.image_url}
+      key={imageUrl}
+      src={imageUrl}
       alt={label}
       className={className ?? "h-full w-full object-cover"}
       loading="lazy"

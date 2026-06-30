@@ -11,6 +11,7 @@ import type { VehicleFormData } from "@/lib/types";
 interface VehicleFormProps {
   initialData?: VehicleFormData;
   onSubmit: (data: VehicleFormData) => Promise<void>;
+  onImageUrlChange?: (url: string | null) => void;
   submitLabel?: string;
 }
 
@@ -34,6 +35,7 @@ const emptyForm: VehicleFormData = {
 export function VehicleForm({
   initialData,
   onSubmit,
+  onImageUrlChange,
   submitLabel = "Save Vehicle",
 }: VehicleFormProps) {
   const [form, setForm] = useState<VehicleFormData>({
@@ -60,7 +62,10 @@ export function VehicleForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <VehicleImageUpload
         value={form.image_url}
-        onChange={(url) => update("image_url", url)}
+        onChange={(url) => {
+          update("image_url", url);
+          onImageUrlChange?.(url);
+        }}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

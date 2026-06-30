@@ -143,7 +143,10 @@ export default function VehicleDetailPage() {
 
     if (!res.ok) throw new Error("Failed to update");
     const updated = await res.json();
-    setVehicle(updated);
+    setVehicle({
+      ...updated,
+      image_url: updated.image_url ?? data.image_url ?? null,
+    });
     setEditing(false);
   };
 
@@ -226,6 +229,7 @@ export default function VehicleDetailPage() {
       <section className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0b0e14] shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
         <div className="relative aspect-[21/9] min-h-[200px] w-full overflow-hidden sm:aspect-[2/1]">
           <VehiclePhoto
+            key={vehicle.image_url ?? vehicle.id}
             vehicle={vehicle}
             overlay
             className="h-full w-full object-cover brightness-[1.3]"
@@ -349,6 +353,11 @@ export default function VehicleDetailPage() {
           <VehicleForm
             initialData={vehicle}
             onSubmit={handleUpdate}
+            onImageUrlChange={(url) =>
+              setVehicle((current) =>
+                current ? { ...current, image_url: url } : current
+              )
+            }
             submitLabel="Save Changes"
           />
         </section>
