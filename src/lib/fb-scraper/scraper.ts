@@ -13,6 +13,7 @@ import { connectMultiloginBrowser } from "./browser-connect";
 import {
   buildMarketplaceSearchUrl,
   buildSearchQuery,
+  ensureMarketplaceHome,
   isMarketplaceLocationRedirect,
   resolveLocationSlug,
   setMarketplaceLocationViaPicker,
@@ -299,12 +300,7 @@ async function runMarketplaceSearchInPage(
   page: Page,
   params: FbSearchParams
 ): Promise<void> {
-  if (!page.url().includes("marketplace")) {
-    throw new ScraperError(
-      "Not on Facebook Marketplace after cookie injection",
-      "LOGIN"
-    );
-  }
+  await ensureMarketplaceHome(page);
 
   const query = buildSearchQuery(params);
   if (!query) {
@@ -366,26 +362,6 @@ async function runMarketplaceSearchInPage(
   }
 
   await logMarketplaceSearchState(page);
-}
-
-async function ensureMarketplaceHome(page: Page): Promise<void> {
-  if (page.url().includes("marketplace") && !(await isSessionLost(page))) {
-    return;
-  }
-
-  await page.goto("https://www.facebook.com/marketplace", {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await randomDelay(2000, 3000);
-
-  if (await isSessionLost(page)) {
-    throw new ScraperError(
-      "Lost Facebook session on Marketplace. Update FB_COOKIES or log in via the Multilogin profile.",
-      "LOGIN"
-    );
-  }
 }
 
 async function tryDirectMarketplaceUrl(

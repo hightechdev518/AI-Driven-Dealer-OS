@@ -1,5 +1,7 @@
 import type { Page } from "playwright-core";
+import { isSessionLost } from "./fb-auth";
 import type { FbSearchParams } from "./types";
+import { ScraperError } from "./types";
 import { randomDelay } from "./human-behavior";
 
 /** Facebook Marketplace only accepts these radius values in search URLs (miles). */
@@ -180,10 +182,43 @@ export function isMarketplaceLocationRedirect(
   }
 }
 
+export async function ensureMarketplaceHome(page: Page): Promise<void> {
+  if (page.url().toLowerCase().includes("marketplace")) {
+    if (!(await isSessionLost(page))) {
+      return;
+    }
+  }
+
+  console.log(
+    `Navigating to Marketplace home (current URL: ${page.url()})`
+  );
+  await page.goto("https://www.facebook.com/marketplace", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await randomDelay(2000, 3000);
+
+  if (await isSessionLost(page)) {
+    throw new ScraperError(
+      "Lost Facebook session on Marketplace. Update FB_COOKIES or log in via the Multilogin profile.",
+      "LOGIN"
+    );
+  }
+
+  if (!page.url().toLowerCase().includes("marketplace")) {
+    throw new ScraperError(
+      `Could not open Facebook Marketplace (landed on ${page.url()}).`,
+      "LOGIN"
+    );
+  }
+}
+
 export async function setMarketplaceLocationViaPicker(
   page: Page,
   location: string,
-  radius: number
+  radius: number,
+  allowRetry = true
 ): Promise<boolean> {
   if (!location.trim()) return false;
 
@@ -291,6 +326,18 @@ export async function setMarketplaceLocationViaPicker(
     console.log(
       `Marketplace location picker applied: ${location} (${snappedRadius} mi)`
     );
+
+    if (!page.url().toLowerCase().includes("marketplace")) {
+      console.warn(
+        `Location picker left non-Marketplace page (${page.url()}), returning to Marketplace home`
+      );
+      await ensureMarketplaceHome(page);
+      if (allowRetry) {
+        return setMarketplaceLocationViaPicker(page, location, radius, false);
+      }
+      return false;
+    }
+
     return true;
   } catch (error) {
     console.warn("Could not set marketplace location via picker:", error);

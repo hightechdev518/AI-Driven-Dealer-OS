@@ -81,14 +81,9 @@ export async function isSessionLost(page: Page): Promise<boolean> {
   return false;
 }
 
-function parseCookiesFromEnv(): Cookie[] {
+function tryParseCookiesFromEnv(): Cookie[] | null {
   const rawCookies = process.env.FB_COOKIES;
-  if (!rawCookies) {
-    throw new ScraperError(
-      "Missing FB_COOKIES in environment",
-      "CONFIG"
-    );
-  }
+  if (!rawCookies?.trim()) return null;
 
   let parsedCookies: BrowserExtensionCookie[];
   try {
@@ -108,6 +103,48 @@ function parseCookiesFromEnv(): Cookie[] {
   }
 
   return mapExtensionCookies(parsedCookies);
+}
+
+async function tryUseExistingMarketplaceSession(page: Page): Promise<boolean> {
+  await page.goto("https://www.facebook.com/marketplace", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(1500);
+
+  const onMarketplace = page.url().toLowerCase().includes("marketplace");
+  if (
+    onMarketplace &&
+    (await isLoggedIn(page)) &&
+    !(await isTwoFactorPage(page))
+  ) {
+    console.log("Using existing Marketplace session from browser profile");
+    await saveFbCookies(await exportCookies(page));
+    return true;
+  }
+
+  return false;
+}
+
+async function openMarketplace(page: Page): Promise<void> {
+  await page.goto("https://www.facebook.com/marketplace", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(1500);
+}
+
+function parseCookiesFromEnv(): Cookie[] {
+  const cookies = tryParseCookiesFromEnv();
+  if (!cookies) {
+    throw new ScraperError(
+      "Missing FB_COOKIES in environment",
+      "CONFIG"
+    );
+  }
+  return cookies;
 }
 
 export async function exportCookies(page: Page): Promise<Cookie[]> {
@@ -133,22 +170,40 @@ export async function injectCookies(page: Page): Promise<void> {
 }
 
 export async function loginToFacebook(page: Page): Promise<void> {
-  await injectCookies(page);
+  if (await tryUseExistingMarketplaceSession(page)) {
+    return;
+  }
 
-  await page.goto("https://www.facebook.com/marketplace", {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
-  await page.waitForLoadState("networkidle").catch(() => {});
+  const envCookies = tryParseCookiesFromEnv();
+  if (envCookies) {
+    await injectCookies(page);
+    await openMarketplace(page);
+  } else {
+    console.log(
+      "No FB_COOKIES configured; relying on Multilogin profile session only"
+    );
+    await openMarketplace(page);
+  }
 
   await page.screenshot({ path: "/tmp/fb-cookie-result.png" });
-  console.log("Cookie injection result URL:", page.url());
+  console.log("Marketplace login result URL:", page.url());
+
+  if (
+    page.url().toLowerCase().includes("marketplace") &&
+    (await isLoggedIn(page))
+  ) {
+    console.log("Marketplace session ready");
+    await saveFbCookies(await exportCookies(page));
+    return;
+  }
 
   if (await isLoggedIn(page)) {
-    console.log("Cookie injection successful!");
-    const contextCookies = await exportCookies(page);
-    await saveFbCookies(contextCookies);
-    return;
+    console.log("Logged in but not on Marketplace, retrying navigation...");
+    await openMarketplace(page);
+    if (page.url().toLowerCase().includes("marketplace")) {
+      await saveFbCookies(await exportCookies(page));
+      return;
+    }
   }
 
   if (await isTwoFactorPage(page)) {
@@ -171,6 +226,11 @@ export async function loginToFacebook(page: Page): Promise<void> {
       "LOGIN"
     );
   }
+
+  throw new ScraperError(
+    `Could not open Facebook Marketplace (landed on ${page.url()}). Log in via the Multilogin profile.`,
+    "LOGIN"
+  );
 }
 
 export async function ensureLoggedIn(page: Page): Promise<void> {
