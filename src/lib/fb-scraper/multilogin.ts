@@ -5,7 +5,39 @@ import { ScraperError } from "./types";
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const MLX_API = "https://api.multilogin.com";
-const MLX_LAUNCHER = "http://127.0.0.1:45000";
+const MLX_LAUNCHER =
+  process.env.MULTILOGIN_LAUNCHER_URL ?? "http://127.0.0.1:45000";
+
+const LAUNCHER_UNREACHABLE_MSG =
+  "Multilogin launcher is not running on this machine (port 45000). Start the Multilogin X app on the same machine as this server, then try again.";
+
+const STOP_DELAY_MS = 3000;
+const STOP_POLL_INTERVAL_MS = 500;
+const STOP_MAX_ATTEMPTS = 3;
+const STOP_POLL_TIMEOUT_MS = 15000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function stopProfileUrl(profileId: string): string {
+  return `${MLX_LAUNCHER}/api/v2/profile/stop/p/${profileId}`;
+}
+
+function isConnectionRefused(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const errnoError = error as NodeJS.ErrnoException;
+  return (
+    errnoError.code === "ECONNREFUSED" ||
+    error.message.toLowerCase().includes("econnrefused")
+  );
+}
+
+function throwIfLauncherUnreachable(error: unknown): void {
+  if (isConnectionRefused(error)) {
+    throw new ScraperError(LAUNCHER_UNREACHABLE_MSG, "MULTILOGIN");
+  }
+}
 
 export type MultiloginBrowserType = "mimic" | "stealthfox";
 
@@ -210,19 +242,134 @@ export async function getMultiloginConfig(): Promise<MultiloginConfig> {
   return { apiToken, folderId, profileId };
 }
 
+type ActiveProfileEntry = {
+  profile_id?: string;
+  id?: string;
+};
+
+function parseActiveProfiles(data: unknown): ActiveProfileEntry[] {
+  if (!data || typeof data !== "object") return [];
+
+  const root = data as Record<string, unknown>;
+  const inner = root.data ?? root;
+
+  if (Array.isArray(inner)) {
+    return inner as ActiveProfileEntry[];
+  }
+
+  if (typeof inner === "object" && inner !== null) {
+    const profiles = (inner as { profiles?: unknown }).profiles;
+    if (Array.isArray(profiles)) {
+      return profiles as ActiveProfileEntry[];
+    }
+  }
+
+  return [];
+}
+
+function profileMatches(entry: ActiveProfileEntry, profileId: string): boolean {
+  return entry.profile_id === profileId || entry.id === profileId;
+}
+
+export async function isProfileRunning(
+  config: MultiloginConfig
+): Promise<boolean> {
+  try {
+    const raw = await httpGet(
+      `${MLX_LAUNCHER}/api/v2/profile/active`,
+      config.apiToken
+    );
+    const parsed = JSON.parse(raw) as unknown;
+    return parseActiveProfiles(parsed).some((entry) =>
+      profileMatches(entry, config.profileId)
+    );
+  } catch (error) {
+    throwIfLauncherUnreachable(error);
+
+    try {
+      const raw = await httpGet(
+        `${MLX_LAUNCHER}/api/v1/profile/active?profile_id=${config.profileId}`,
+        config.apiToken
+      );
+      const parsed = JSON.parse(raw) as unknown;
+      return parseActiveProfiles(parsed).some((entry) =>
+        profileMatches(entry, config.profileId)
+      );
+    } catch (fallbackError) {
+      throwIfLauncherUnreachable(fallbackError);
+      return false;
+    }
+  }
+}
+
+async function waitUntilProfileStopped(
+  config: MultiloginConfig,
+  timeoutMs = STOP_POLL_TIMEOUT_MS
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (!(await isProfileRunning(config))) {
+      return true;
+    }
+    await sleep(STOP_POLL_INTERVAL_MS);
+  }
+
+  return !(await isProfileRunning(config));
+}
+
+async function stopAllProfiles(token: string): Promise<void> {
+  await httpGet(`${MLX_LAUNCHER}/api/v1/profile/stop_all`, token);
+}
+
+export interface MultiloginSessionStopResult {
+  stopped: boolean;
+  wasRunning: boolean;
+}
+
+export async function forceStopMultiloginSession(
+  config: MultiloginConfig
+): Promise<MultiloginSessionStopResult> {
+  const wasRunning = await isProfileRunning(config);
+
+  if (!wasRunning) {
+    return { stopped: true, wasRunning: false };
+  }
+
+  for (let attempt = 0; attempt < STOP_MAX_ATTEMPTS; attempt++) {
+    try {
+      await httpGet(stopProfileUrl(config.profileId), config.apiToken);
+    } catch (error) {
+      throwIfLauncherUnreachable(error);
+      console.warn(
+        `Multilogin stop attempt ${attempt + 1} failed:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+
+    await sleep(STOP_DELAY_MS);
+
+    if (await waitUntilProfileStopped(config)) {
+      return { stopped: true, wasRunning: true };
+    }
+  }
+
+  try {
+    await stopAllProfiles(config.apiToken);
+    await sleep(STOP_DELAY_MS);
+  } catch (error) {
+    throwIfLauncherUnreachable(error);
+    console.error("Multilogin stop_all failed:", error);
+  }
+
+  const stopped = await waitUntilProfileStopped(config);
+  return { stopped, wasRunning: true };
+}
+
 export async function startMultiloginProfile(
   config: MultiloginConfig
 ): Promise<MultiloginProfileSession> {
-  const stopUrl = `${MLX_LAUNCHER}/api/v2/profile/stop/${config.profileId}`;
-  try {
-    await fetch(stopUrl, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${config.apiToken}` },
-    });
-    await new Promise((r) => setTimeout(r, 3000));
-  } catch {
-    // Ignore stop errors — profile may not be running
-  }
+  await forceStopMultiloginSession(config);
 
   const url = `${MLX_LAUNCHER}/api/v2/profile/f/${config.folderId}/p/${config.profileId}/start?automation_type=playwright&headless_mode=false`;
 
@@ -235,6 +382,7 @@ export async function startMultiloginProfile(
     body = JSON.parse(raw);
   } catch (error) {
     console.error("Multilogin start profile failed:", error);
+    throwIfLauncherUnreachable(error);
     throw new ScraperError(
       `Failed to start Multilogin profile: ${error instanceof Error ? error.message : String(error)}`,
       "MULTILOGIN"
@@ -261,12 +409,19 @@ export async function startMultiloginProfile(
 export async function stopMultiloginProfile(
   config: MultiloginConfig
 ): Promise<void> {
-  const url = `${MLX_LAUNCHER}/api/v2/profile/stop/p/${config.profileId}`;
-
   try {
-    await httpGet(url, config.apiToken);
+    const result = await forceStopMultiloginSession(config);
+    if (!result.stopped) {
+      console.error(
+        "Multilogin profile may still be running after cleanup attempts"
+      );
+    }
   } catch (error) {
-    console.error("Multilogin stop profile error:", error);
+    if (error instanceof ScraperError && error.code === "MULTILOGIN") {
+      console.error("Multilogin cleanup skipped:", error.message);
+      return;
+    }
+    throw error;
   }
 }
 

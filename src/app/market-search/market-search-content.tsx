@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink, Loader2, MessageCircle, Search, Save } from "lucide-react";
+import { ExternalLink, Loader2, MessageCircle, RotateCcw, Save, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -41,7 +41,9 @@ export default function MarketSearchContent() {
   const [form, setForm] = useState(defaultForm);
   const [results, setResults] = useState<FbListing[]>([]);
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedUrls, setSavedUrls] = useState<Set<string>>(new Set());
 
@@ -52,6 +54,7 @@ export default function MarketSearchContent() {
   const handleSearch = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setResetMessage(null);
     setResults([]);
     setSavedUrls(new Set());
 
@@ -88,6 +91,31 @@ export default function MarketSearchContent() {
       setLoading(false);
     }
   }, [form]);
+
+  const handleResetSession = useCallback(async () => {
+    setResetting(true);
+    setError(null);
+    setResetMessage(null);
+
+    try {
+      const res = await fetch("/api/fb-scraper/reset-session", {
+        method: "POST",
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to reset browser session");
+        return;
+      }
+
+      setResetMessage(data.message || "Browser session reset.");
+    } catch (err) {
+      console.error(err);
+      setError("Network error while resetting browser session.");
+    } finally {
+      setResetting(false);
+    }
+  }, []);
 
   const handleSave = async (listing: FbListing) => {
     setSavingId(listing.url);
@@ -243,10 +271,10 @@ export default function MarketSearchContent() {
             </div>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             <Button
               onClick={handleSearch}
-              disabled={loading || (!form.make && !form.model)}
+              disabled={loading || resetting || (!form.make && !form.model)}
               className="min-w-[220px]"
             >
               {loading ? (
@@ -261,11 +289,54 @@ export default function MarketSearchContent() {
                 </>
               )}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleResetSession}
+              disabled={loading || resetting}
+              className="min-w-[220px]"
+            >
+              {resetting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Resetting Session...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="h-4 w-4" />
+                  Reset Browser Session
+                </>
+              )}
+            </Button>
           </div>
+
+          {resetMessage && (
+            <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+              {resetMessage}
+            </div>
+          )}
 
           {error && (
             <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-              {error}
+              <p>{error}</p>
+              {(error.includes("PROFILE_ALREADY_RUNNING") ||
+                error.includes("Multilogin")) && (
+                <p className="mt-2 text-red-200/80">
+                  {error.includes("not running on this machine") ? (
+                    <>
+                      Install and open <strong>Multilogin X</strong> on the same
+                      machine where this app runs, then try again. Market Search
+                      does not work from localhost unless Multilogin is running
+                      locally (or you point the app at your deployed server).
+                    </>
+                  ) : (
+                    <>
+                      Click <strong>Reset Browser Session</strong> above, wait a
+                      few seconds, then search again.
+                    </>
+                  )}
+                </p>
+              )}
             </div>
           )}
         </CardContent>
