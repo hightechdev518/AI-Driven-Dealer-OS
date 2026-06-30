@@ -11,6 +11,14 @@ import {
 } from "./multilogin";
 import { connectMultiloginBrowser } from "./browser-connect";
 import {
+  buildMarketplaceSearchUrl,
+  buildSearchQuery,
+  isMarketplaceLocationRedirect,
+  resolveLocationSlug,
+  setMarketplaceLocationViaPicker,
+  snapRadiusMiles,
+} from "./marketplace-location";
+import {
   FbListing,
   FbSearchParams,
   FbSearchResult,
@@ -46,16 +54,6 @@ function parseYearFromTitle(title: string): number | null {
   return match ? parseInt(match[0], 10) : null;
 }
 
-function buildSearchQuery(params: FbSearchParams): string {
-  const parts: string[] = [];
-  if (params.yearFrom && params.yearTo && params.yearFrom === params.yearTo) {
-    parts.push(String(params.yearFrom));
-  }
-  if (params.make) parts.push(params.make);
-  if (params.model) parts.push(params.model);
-  return parts.join(" ").trim();
-}
-
 const LISTING_SELECTORS = [
   'div[data-testid="marketplace-search-feed-item"]',
   'div[class*="x9f619"][class*="x1n2onr6"]',
@@ -71,53 +69,6 @@ async function logListingSelectorCounts(page: Page): Promise<void> {
 
 async function loginToFacebook(page: Page): Promise<void> {
   await ensureLoggedIn(page);
-}
-
-async function setMarketplaceLocation(
-  page: Page,
-  location: string,
-  radius: number
-): Promise<void> {
-  if (!location.trim()) return;
-
-  const locationInput = page
-    .locator(
-      'input[aria-label*="Location"], input[placeholder*="Location"], input[placeholder*="location"]'
-    )
-    .first();
-
-  if ((await locationInput.count()) === 0) return;
-
-  try {
-    await locationInput.click();
-    await randomDelay();
-    await locationInput.fill(location);
-    await randomDelay(1000, 2000);
-
-    const suggestion = page
-      .locator('[role="option"], [role="listbox"] [role="option"]')
-      .first();
-    if ((await suggestion.count()) > 0) {
-      await suggestion.click();
-      await randomDelay();
-    } else {
-      await page.keyboard.press("Enter");
-      await randomDelay();
-    }
-
-    const radiusSelect = page.locator("text=/\\d+ miles/").first();
-    if ((await radiusSelect.count()) > 0) {
-      await radiusSelect.click();
-      await randomDelay();
-      const radiusOption = page.locator(`text="${radius} miles"`).first();
-      if ((await radiusOption.count()) > 0) {
-        await radiusOption.click();
-        await randomDelay();
-      }
-    }
-  } catch (error) {
-    console.warn("Could not set marketplace location:", error);
-  }
 }
 
 async function fillFilterField(
@@ -345,7 +296,7 @@ async function logMarketplaceSearchState(page: Page): Promise<void> {
   await logListingSelectorCounts(page);
 }
 
-async function runMarketplaceSearch(
+async function runMarketplaceSearchInPage(
   page: Page,
   params: FbSearchParams
 ): Promise<void> {
@@ -418,6 +369,90 @@ async function runMarketplaceSearch(
   await logMarketplaceSearchState(page);
 }
 
+async function navigateMarketplaceSearch(
+  page: Page,
+  params: FbSearchParams
+): Promise<void> {
+  const query = buildSearchQuery(params);
+  const location = params.location.trim();
+
+  if (location) {
+    const slug = await resolveLocationSlug(location);
+    if (slug) {
+      const searchUrl = buildMarketplaceSearchUrl(slug, params);
+      console.log(
+        `Navigating marketplace search URL for ${location} → slug "${slug}" (radius ${snapRadiusMiles(params.radius)} mi): ${searchUrl}`
+      );
+      await page.goto(searchUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(4000);
+
+      if (page.url().includes("login")) {
+        throw new ScraperError(
+          "Lost Facebook session during marketplace search navigation",
+          "LOGIN"
+        );
+      }
+
+      if (isMarketplaceLocationRedirect(page.url(), slug)) {
+        console.warn(
+          `Marketplace slug "${slug}" was not accepted (redirected to ${page.url()}). Falling back to location picker.`
+        );
+        await setMarketplaceLocationViaPicker(page, location, params.radius);
+        if (query) {
+          await runMarketplaceSearchInPage(page, params);
+        }
+      } else if (!query) {
+        console.log("Location-only marketplace browse (no vehicle query)");
+        await logMarketplaceSearchState(page);
+      } else {
+        await logMarketplaceSearchState(page);
+      }
+      return;
+    }
+
+    console.log(
+      `Could not resolve slug for "${location}", using marketplace location picker`
+    );
+    if (!page.url().includes("marketplace")) {
+      await page.goto("https://www.facebook.com/marketplace", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+      await page.waitForLoadState("networkidle").catch(() => {});
+    }
+    const locationSet = await setMarketplaceLocationViaPicker(
+      page,
+      location,
+      params.radius
+    );
+    if (!locationSet) {
+      console.warn(
+        `Failed to apply location "${location}" — results may reflect the profile default city`
+      );
+    }
+    if (query) {
+      await runMarketplaceSearchInPage(page, params);
+    } else {
+      await logMarketplaceSearchState(page);
+    }
+    return;
+  }
+
+  if (query) {
+    await runMarketplaceSearchInPage(page, params);
+    return;
+  }
+
+  console.log("No search query or location provided, using current marketplace page");
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(5000);
+  await logMarketplaceSearchState(page);
+}
+
 async function scrapeWithPage(
   page: Page,
   params: FbSearchParams,
@@ -433,7 +468,7 @@ async function scrapeWithPage(
   console.log("Staying on marketplace page, searching in-page...");
   console.log("Current URL:", page.url());
 
-  await runMarketplaceSearch(page, params);
+  await navigateMarketplaceSearch(page, params);
 
   if (await isBlockedPage(page)) {
     if (!isRetry) {
@@ -447,7 +482,6 @@ async function scrapeWithPage(
     );
   }
 
-  await setMarketplaceLocation(page, params.location, params.radius);
   await applyMarketplaceFilters(page, params);
   await humanScroll(page, 2);
 
