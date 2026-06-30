@@ -1,21 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { MessageCircle } from "lucide-react";
+import { InventoryCard } from "@/components/inventory/inventory-card";
+import { InventoryFilterTabs } from "@/components/inventory/inventory-filter-tabs";
 import { KpiCard } from "@/components/kpi-card";
-import { PriorityBadge } from "@/components/priority-badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  countByFilter,
+  matchesFilter,
+  type FilterTab,
+} from "@/lib/inventory-filters";
 import type { AiPriority, Vehicle } from "@/lib/types";
-import { getVehicleLabel } from "@/lib/vehicle-logic";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 const PRIORITY_ORDER: AiPriority[] = [
@@ -44,6 +41,7 @@ export default function DashboardPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [activeFilter, setActiveFilter] = useState<FilterTab>("action");
 
   useEffect(() => {
     fetch("/api/vehicles")
@@ -86,13 +84,19 @@ export default function DashboardPage() {
     {} as Record<AiPriority, number>
   );
 
-  const actionBoard = [...vehicles]
-    .filter((v) => v.ai_priority !== "HOLD")
-    .sort((a, b) => {
-      const aIdx = PRIORITY_ORDER.indexOf(a.ai_priority as AiPriority);
-      const bIdx = PRIORITY_ORDER.indexOf(b.ai_priority as AiPriority);
-      return aIdx - bIdx;
-    });
+  const filterCounts = useMemo(() => countByFilter(vehicles), [vehicles]);
+
+  const filteredVehicles = useMemo(
+    () =>
+      vehicles
+        .filter((v) => matchesFilter(v, activeFilter))
+        .sort((a, b) => {
+          const aIdx = PRIORITY_ORDER.indexOf(a.ai_priority as AiPriority);
+          const bIdx = PRIORITY_ORDER.indexOf(b.ai_priority as AiPriority);
+          return aIdx - bIdx;
+        }),
+    [vehicles, activeFilter]
+  );
 
   if (loading) {
     return (
@@ -158,56 +162,40 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Daily Action Board</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {actionBoard.length === 0 ? (
-            <p className="py-8 text-center text-slate-400">
-              No action items — all vehicles are on hold.
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-white">
+            Daily Action Board
+          </h2>
+          <p className="mt-1 text-sm text-slate-400">
+            {filterCounts.action} vehicle{filterCounts.action !== 1 ? "s" : ""}{" "}
+            need attention today
+          </p>
+        </div>
+
+        <InventoryFilterTabs
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          counts={filterCounts}
+        />
+
+        {filteredVehicles.length === 0 ? (
+          <div className="flex h-52 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 px-4 text-center">
+            <p className="font-medium text-white">No vehicles match this filter</p>
+            <p className="mt-1 text-sm text-slate-400">
+              {activeFilter === "action"
+                ? "All vehicles are on hold — nothing needs action right now."
+                : "Try a different filter."}
             </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Vehicle</TableHead>
-                  <TableHead>Recommended Price</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Net Profit</TableHead>
-                  <TableHead>Days in Stock</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {actionBoard.map((vehicle) => (
-                  <TableRow key={vehicle.id}>
-                    <TableCell>
-                      <PriorityBadge priority={vehicle.ai_priority} />
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/inventory/${vehicle.id}`}
-                        className="font-medium text-orange-500 hover:underline"
-                      >
-                        {getVehicleLabel(vehicle)}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {formatCurrency(vehicle.recommended_price)}
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate text-slate-300">
-                      {vehicle.action_required}
-                    </TableCell>
-                    <TableCell>{formatCurrency(vehicle.net_profit)}</TableCell>
-                    <TableCell>{vehicle.days_in_stock ?? 0}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredVehicles.map((vehicle) => (
+              <InventoryCard key={vehicle.id} vehicle={vehicle} />
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

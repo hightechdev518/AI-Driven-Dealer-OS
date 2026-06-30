@@ -42,6 +42,7 @@ export interface Vehicle {
   fb_listing_url: string | null;
   fb_listed_at: string | null;
   fb_listing_status: FbListingStatus | null;
+  image_url: string | null;
   created_at: string;
 }
 
@@ -83,6 +84,7 @@ export interface VehicleFormData {
   fb_listing_url?: string | null;
   fb_listed_at?: string | null;
   fb_listing_status?: FbListingStatus | null;
+  image_url?: string | null;
 }
 
 export interface AiExtractedVehicle {

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS vehicles (
   fb_listing_url TEXT,
   fb_listed_at TIMESTAMPTZ,
   fb_listing_status TEXT CHECK (fb_listing_status IN ('draft', 'published', 'sold')),
+  image_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

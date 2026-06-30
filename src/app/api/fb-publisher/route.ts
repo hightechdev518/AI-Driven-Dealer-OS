@@ -63,6 +63,10 @@ export async function POST(request: Request) {
       mileage: vehicle.mileage,
     });
 
+    const primaryPhoto = Array.isArray(body.photos)
+      ? body.photos.find((url) => typeof url === "string" && url.trim())
+      : undefined;
+
     const { data: updated, error: updateError } = await supabase
       .from("vehicles")
       .update({
@@ -71,6 +75,7 @@ export async function POST(request: Request) {
         fb_listing_status: "published",
         listed_online: true,
         online_channel: "Facebook Marketplace",
+        ...(primaryPhoto ? { image_url: primaryPhoto.trim() } : {}),
       })
       .eq("id", vehicleId)
       .select()

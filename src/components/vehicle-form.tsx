@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { VehicleImageUpload } from "@/components/vehicle-image-upload";
 import type { VehicleFormData } from "@/lib/types";
 
 interface VehicleFormProps {
@@ -27,6 +28,7 @@ const emptyForm: VehicleFormData = {
   status: "In Stock",
   bought_date: new Date().toISOString().split("T")[0],
   notes: "",
+  image_url: null,
 };
 
 export function VehicleForm({
@@ -56,6 +58,11 @@ export function VehicleForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <VehicleImageUpload
+        value={form.image_url}
+        onChange={(url) => update("image_url", url)}
+      />
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
           <Label htmlFor="year">Year</Label>

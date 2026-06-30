@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,9 +15,10 @@ import type { VehicleFormData } from "@/lib/types";
 
 interface AddVehicleDialogProps {
   onAdded: () => void;
+  trigger?: ReactNode;
 }
 
-export function AddVehicleDialog({ onAdded }: AddVehicleDialogProps) {
+export function AddVehicleDialog({ onAdded, trigger }: AddVehicleDialogProps) {
   const [open, setOpen] = useState(false);
 
   const handleSubmit = async (data: VehicleFormData) => {
@@ -39,10 +40,12 @@ export function AddVehicleDialog({ onAdded }: AddVehicleDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <Plus className="h-4 w-4" />
-          Add Vehicle
-        </Button>
+        {trigger ?? (
+          <Button>
+            <Plus className="h-4 w-4" />
+            Add
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>

@@ -20,6 +20,10 @@
 .DS_Store
 *.pem
 
+# local vehicle photo uploads (fallback when Supabase bucket unavailable)
+/public/uploads/vehicles/*
+!/public/uploads/vehicles/.gitkeep
+
 # debug
 npm-debug.log*
 yarn-debug.log*

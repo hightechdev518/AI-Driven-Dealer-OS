@@ -121,6 +121,7 @@ export function enrichVehicle(data: VehicleFormData & { id?: string }): Omit<
     fb_listing_url: data.fb_listing_url ?? null,
     fb_listed_at: data.fb_listed_at ?? null,
     fb_listing_status: data.fb_listing_status ?? null,
+    image_url: data.image_url ?? null,
   };
 }
 
