@@ -15,14 +15,16 @@ export async function POST() {
     const config = await getMultiloginConfig();
     const wasRunning = await isProfileRunning(config);
     const result = await forceStopMultiloginSession(config);
+    const stillRunning = await isProfileRunning(config);
 
-    if (!result.stopped) {
+    if (!result.stopped || stillRunning) {
       return NextResponse.json(
         {
           success: false,
           wasRunning,
+          stillRunning,
           error:
-            "Could not confirm the browser session stopped. Try again or restart Multilogin on the server.",
+            "Could not stop the browser profile. Try again, or restart the Multilogin launcher on the server.",
         },
         { status: 502 }
       );
@@ -31,9 +33,10 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       wasRunning,
+      stillRunning: false,
       message: wasRunning
-        ? "Browser session stopped. You can search again."
-        : "No active browser session was running.",
+        ? "Browser profile stopped. Port 45000 is the Multilogin launcher and should stay running — you can search again now."
+        : "No browser profile was running. You can search again now.",
     });
   } catch (error) {
     console.error("POST /api/fb-scraper/reset-session:", error);

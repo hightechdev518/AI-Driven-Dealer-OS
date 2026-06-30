@@ -20,10 +20,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function stopProfileUrl(profileId: string): string {
-  return `${MLX_LAUNCHER}/api/v2/profile/stop/p/${profileId}`;
-}
-
 function isConnectionRefused(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const errnoError = error as NodeJS.ErrnoException;
@@ -245,6 +241,8 @@ export async function getMultiloginConfig(): Promise<MultiloginConfig> {
 type ActiveProfileEntry = {
   profile_id?: string;
   id?: string;
+  is_active?: boolean;
+  port?: string | number;
 };
 
 function parseActiveProfiles(data: unknown): ActiveProfileEntry[] {
@@ -258,9 +256,18 @@ function parseActiveProfiles(data: unknown): ActiveProfileEntry[] {
   }
 
   if (typeof inner === "object" && inner !== null) {
-    const profiles = (inner as { profiles?: unknown }).profiles;
-    if (Array.isArray(profiles)) {
-      return profiles as ActiveProfileEntry[];
+    const container = inner as ActiveProfileEntry & { profiles?: unknown };
+
+    if (Array.isArray(container.profiles)) {
+      return container.profiles as ActiveProfileEntry[];
+    }
+
+    if (
+      "profile_id" in container ||
+      "id" in container ||
+      "is_active" in container
+    ) {
+      return [container];
     }
   }
 
@@ -269,6 +276,12 @@ function parseActiveProfiles(data: unknown): ActiveProfileEntry[] {
 
 function profileMatches(entry: ActiveProfileEntry, profileId: string): boolean {
   return entry.profile_id === profileId || entry.id === profileId;
+}
+
+function isEntryActive(entry: ActiveProfileEntry, profileId: string): boolean {
+  if (!profileMatches(entry, profileId)) return false;
+  if (entry.is_active === false) return false;
+  return entry.is_active === true || entry.port != null;
 }
 
 export async function isProfileRunning(
@@ -281,7 +294,7 @@ export async function isProfileRunning(
     );
     const parsed = JSON.parse(raw) as unknown;
     return parseActiveProfiles(parsed).some((entry) =>
-      profileMatches(entry, config.profileId)
+      isEntryActive(entry, config.profileId)
     );
   } catch (error) {
     throwIfLauncherUnreachable(error);
@@ -293,11 +306,32 @@ export async function isProfileRunning(
       );
       const parsed = JSON.parse(raw) as unknown;
       return parseActiveProfiles(parsed).some((entry) =>
-        profileMatches(entry, config.profileId)
+        isEntryActive(entry, config.profileId)
       );
     } catch (fallbackError) {
       throwIfLauncherUnreachable(fallbackError);
       return false;
+    }
+  }
+}
+
+async function requestStopProfile(config: MultiloginConfig): Promise<void> {
+  const stopUrls = [
+    `${MLX_LAUNCHER}/api/v1/profile/stop?profile_id=${config.profileId}`,
+    `${MLX_LAUNCHER}/api/v2/profile/stop/p/${config.profileId}`,
+    `${MLX_LAUNCHER}/api/v1/profile/stop/p/${config.profileId}`,
+  ];
+
+  for (const url of stopUrls) {
+    try {
+      await httpGet(url, config.apiToken);
+    } catch (error) {
+      throwIfLauncherUnreachable(error);
+      console.warn(
+        "Multilogin stop request failed:",
+        url,
+        error instanceof Error ? error.message : error
+      );
     }
   }
 }
@@ -332,25 +366,13 @@ export async function forceStopMultiloginSession(
 ): Promise<MultiloginSessionStopResult> {
   const wasRunning = await isProfileRunning(config);
 
-  if (!wasRunning) {
-    return { stopped: true, wasRunning: false };
-  }
-
+  // Always call stop APIs — Multilogin can report idle while still blocking starts.
   for (let attempt = 0; attempt < STOP_MAX_ATTEMPTS; attempt++) {
-    try {
-      await httpGet(stopProfileUrl(config.profileId), config.apiToken);
-    } catch (error) {
-      throwIfLauncherUnreachable(error);
-      console.warn(
-        `Multilogin stop attempt ${attempt + 1} failed:`,
-        error instanceof Error ? error.message : error
-      );
-    }
-
+    await requestStopProfile(config);
     await sleep(STOP_DELAY_MS);
 
     if (await waitUntilProfileStopped(config)) {
-      return { stopped: true, wasRunning: true };
+      return { stopped: true, wasRunning };
     }
   }
 
@@ -363,14 +385,17 @@ export async function forceStopMultiloginSession(
   }
 
   const stopped = await waitUntilProfileStopped(config);
-  return { stopped, wasRunning: true };
+  return { stopped, wasRunning: wasRunning || !stopped };
 }
 
-export async function startMultiloginProfile(
+function isProfileAlreadyRunningError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes("PROFILE_ALREADY_RUNNING");
+}
+
+async function startMultiloginProfileOnce(
   config: MultiloginConfig
 ): Promise<MultiloginProfileSession> {
-  await forceStopMultiloginSession(config);
-
   const url = `${MLX_LAUNCHER}/api/v2/profile/f/${config.folderId}/p/${config.profileId}/start?automation_type=playwright&headless_mode=false`;
 
   let body: {
@@ -404,6 +429,28 @@ export async function startMultiloginProfile(
     browserType,
     port,
   };
+}
+
+export async function startMultiloginProfile(
+  config: MultiloginConfig
+): Promise<MultiloginProfileSession> {
+  await forceStopMultiloginSession(config);
+
+  try {
+    return await startMultiloginProfileOnce(config);
+  } catch (error) {
+    if (!isProfileAlreadyRunningError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      "Multilogin profile still running after stop, forcing stop_all and retrying start..."
+    );
+    await stopAllProfiles(config.apiToken);
+    await sleep(STOP_DELAY_MS);
+    await forceStopMultiloginSession(config);
+    return await startMultiloginProfileOnce(config);
+  }
 }
 
 export async function stopMultiloginProfile(

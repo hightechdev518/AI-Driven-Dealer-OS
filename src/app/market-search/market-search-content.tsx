@@ -154,6 +154,10 @@ export default function MarketSearchContent() {
             <span className="text-orange-500"> — linked to inventory vehicle</span>
           )}
         </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Uses Multilogin on the server. Port 45000 is the launcher (always on).
+          Reset stops the browser profile only.
+        </p>
       </div>
 
       <Card>
