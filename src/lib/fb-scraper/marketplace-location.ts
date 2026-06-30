@@ -7,17 +7,68 @@ import { randomDelay } from "./human-behavior";
 /** Facebook Marketplace only accepts these radius values in search URLs (miles). */
 export const FB_RADIUS_OPTIONS = [1, 2, 5, 10, 20, 40, 60, 80, 100, 250, 500] as const;
 
-/** Verified Facebook Marketplace city slugs (ZIP/city names must map to one of these). */
+/** Facebook Marketplace metro centers with verified URL slugs. */
+const METRO_CENTERS: Array<{
+  slug: string;
+  name: string;
+  lat: number;
+  lng: number;
+}> = [
+  { slug: "nyc", name: "New York City", lat: 40.7128, lng: -74.006 },
+  { slug: "la", name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
+  { slug: "sanfrancisco", name: "San Francisco", lat: 37.7749, lng: -122.4194 },
+  { slug: "chicago", name: "Chicago", lat: 41.8781, lng: -87.6298 },
+  { slug: "austin", name: "Austin", lat: 30.2672, lng: -97.7431 },
+  { slug: "boston", name: "Boston", lat: 42.3601, lng: -71.0589 },
+  { slug: "seattle", name: "Seattle", lat: 47.6062, lng: -122.3321 },
+  { slug: "atlanta", name: "Atlanta", lat: 33.749, lng: -84.388 },
+  { slug: "miami", name: "Miami", lat: 25.7617, lng: -80.1918 },
+  { slug: "orlando", name: "Orlando", lat: 28.5383, lng: -81.3792 },
+  { slug: "tampa", name: "Tampa", lat: 27.9506, lng: -82.4572 },
+  { slug: "portland", name: "Portland", lat: 45.5152, lng: -122.6784 },
+  { slug: "dallas", name: "Dallas", lat: 32.7767, lng: -96.797 },
+  { slug: "houston", name: "Houston", lat: 29.7604, lng: -95.3698 },
+  { slug: "denver", name: "Denver", lat: 39.7392, lng: -104.9903 },
+  { slug: "phoenix", name: "Phoenix", lat: 33.4484, lng: -112.074 },
+  { slug: "lasvegas", name: "Las Vegas", lat: 36.1699, lng: -115.1398 },
+  { slug: "philadelphia", name: "Philadelphia", lat: 39.9526, lng: -75.1652 },
+  { slug: "detroit", name: "Detroit", lat: 42.3314, lng: -83.0458 },
+  { slug: "minneapolis", name: "Minneapolis", lat: 44.9778, lng: -93.265 },
+  { slug: "nashville", name: "Nashville", lat: 36.1627, lng: -86.7816 },
+  { slug: "charlotte", name: "Charlotte", lat: 35.2271, lng: -80.8431 },
+  { slug: "sandiego", name: "San Diego", lat: 32.7157, lng: -117.1611 },
+  { slug: "sacramento", name: "Sacramento", lat: 38.5816, lng: -121.4944 },
+  { slug: "cleveland", name: "Cleveland", lat: 41.4993, lng: -81.6944 },
+  { slug: "pittsburgh", name: "Pittsburgh", lat: 40.4406, lng: -79.9959 },
+  { slug: "kansascity", name: "Kansas City", lat: 39.0997, lng: -94.5786 },
+  { slug: "stlouis", name: "St. Louis", lat: 38.627, lng: -90.1994 },
+  { slug: "saltlakecity", name: "Salt Lake City", lat: 40.7608, lng: -111.891 },
+  { slug: "raleigh", name: "Raleigh", lat: 35.7796, lng: -78.6382 },
+  { slug: "indianapolis", name: "Indianapolis", lat: 39.7684, lng: -86.1581 },
+  { slug: "columbus", name: "Columbus", lat: 39.9612, lng: -82.9988 },
+  { slug: "sanantonio", name: "San Antonio", lat: 29.4241, lng: -98.4936 },
+  { slug: "fortworth", name: "Fort Worth", lat: 32.7555, lng: -97.3308 },
+];
+
+/** Map cities/states to verified Facebook slugs before falling back to nearest metro. */
 const CITY_SLUGS: Record<string, string> = {
   "new york, ny": "nyc",
   "new york city, ny": "nyc",
   "brooklyn, ny": "nyc",
+  "north bergen, nj": "nyc",
+  "jersey city, nj": "nyc",
+  "newark, nj": "nyc",
+  "hoboken, nj": "nyc",
   "los angeles, ca": "la",
   "beverly hills, ca": "la",
   "santa monica, ca": "la",
   "san francisco, ca": "sanfrancisco",
   "oakland, ca": "sanfrancisco",
   "san jose, ca": "sanfrancisco",
+  "rockledge, fl": "orlando",
+  "melbourne, fl": "orlando",
+  "palm bay, fl": "orlando",
+  "cocoa, fl": "orlando",
   "chicago, il": "chicago",
   "austin, tx": "austin",
   "boston, ma": "boston",
@@ -52,12 +103,20 @@ const CITY_SLUGS: Record<string, string> = {
   "fort worth, tx": "fortworth",
 };
 
-const SLUG_ALIASES: Record<string, string> = {
-  nyc: "nyc",
-  la: "la",
-  sf: "sanfrancisco",
-  sanfrancisco: "sanfrancisco",
+const STATE_DEFAULT_SLUG: Record<string, string> = {
+  NJ: "nyc",
+  NY: "nyc",
+  CT: "nyc",
+  FL: "orlando",
 };
+
+export interface LocationGeo {
+  city: string;
+  state: string;
+  latitude: number;
+  longitude: number;
+  zip?: string;
+}
 
 function normalizeKey(value: string): string {
   return value
@@ -71,8 +130,37 @@ function cityStateKey(city: string, state: string): string {
   return normalizeKey(`${city}, ${state}`);
 }
 
-function slugifyCity(city: string): string {
-  return city.toLowerCase().replace(/[^a-z0-9]/g, "");
+function haversineMiles(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function findNearestMetroSlug(lat: number, lng: number): string {
+  let best = METRO_CENTERS[0];
+  let bestDistance = Infinity;
+
+  for (const metro of METRO_CENTERS) {
+    const distance = haversineMiles(lat, lng, metro.lat, metro.lng);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = metro;
+    }
+  }
+
+  console.log(
+    `Nearest Marketplace metro for (${lat.toFixed(4)}, ${lng.toFixed(4)}): ${best.slug} (${best.name}, ~${bestDistance.toFixed(0)} mi)`
+  );
+  return best.slug;
 }
 
 export function snapRadiusMiles(radius: number): number {
@@ -82,26 +170,55 @@ export function snapRadiusMiles(radius: number): number {
   );
 }
 
-async function fetchZipGeo(
-  zip: string
-): Promise<{ city: string; state: string } | null> {
+async function fetchZipGeo(zip: string): Promise<LocationGeo | null> {
   try {
     const res = await fetch(`https://api.zippopotam.us/us/${zip}`, {
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as {
-      places?: Array<{ "place name": string; "state abbreviation": string }>;
+      places?: Array<{
+        "place name": string;
+        "state abbreviation": string;
+        latitude: string;
+        longitude: string;
+      }>;
     };
     const place = data.places?.[0];
     if (!place) return null;
     return {
       city: place["place name"],
       state: place["state abbreviation"],
+      latitude: Number.parseFloat(place.latitude),
+      longitude: Number.parseFloat(place.longitude),
+      zip,
     };
   } catch {
     return null;
   }
+}
+
+export async function resolveLocationGeo(
+  location: string
+): Promise<LocationGeo | null> {
+  const trimmed = location.trim();
+  if (!trimmed) return null;
+
+  if (/^\d{5}$/.test(trimmed)) {
+    return fetchZipGeo(trimmed);
+  }
+
+  const commaMatch = trimmed.match(/^([^,]+),\s*([A-Za-z]{2})$/);
+  if (commaMatch) {
+    return {
+      city: commaMatch[1].trim(),
+      state: commaMatch[2].toUpperCase(),
+      latitude: NaN,
+      longitude: NaN,
+    };
+  }
+
+  return null;
 }
 
 export async function resolveLocationSlug(
@@ -110,32 +227,49 @@ export async function resolveLocationSlug(
   const trimmed = location.trim();
   if (!trimmed) return null;
 
-  const alias = SLUG_ALIASES[normalizeKey(trimmed).replace(/\s+/g, "")];
-  if (alias) return alias;
+  const geo = await resolveLocationGeo(trimmed);
+  if (geo) {
+    const mapped = CITY_SLUGS[cityStateKey(geo.city, geo.state)];
+    if (mapped) return mapped;
 
-  if (/^\d{5}$/.test(trimmed)) {
-    const geo = await fetchZipGeo(trimmed);
-    if (geo) {
-      const mapped = CITY_SLUGS[cityStateKey(geo.city, geo.state)];
-      if (mapped) return mapped;
-      return slugifyCity(geo.city) || null;
+    if (Number.isFinite(geo.latitude) && Number.isFinite(geo.longitude)) {
+      return findNearestMetroSlug(geo.latitude, geo.longitude);
     }
-    return null;
+
+    const stateDefault = STATE_DEFAULT_SLUG[geo.state.toUpperCase()];
+    if (stateDefault) return stateDefault;
   }
 
   const commaMatch = trimmed.match(/^([^,]+),\s*([A-Za-z]{2})$/);
   if (commaMatch) {
-    const key = cityStateKey(commaMatch[1], commaMatch[2]);
-    const mapped = CITY_SLUGS[key];
+    const mapped = CITY_SLUGS[cityStateKey(commaMatch[1], commaMatch[2])];
     if (mapped) return mapped;
-    return slugifyCity(commaMatch[1]) || null;
+    const stateDefault = STATE_DEFAULT_SLUG[commaMatch[2].toUpperCase()];
+    if (stateDefault) return stateDefault;
   }
 
   const mapped = CITY_SLUGS[normalizeKey(trimmed)];
   if (mapped) return mapped;
 
-  const slug = slugifyCity(trimmed);
-  return slug || null;
+  return null;
+}
+
+/** Text to type into Facebook's location picker (ZIP works best). */
+export async function resolveLocationPickerQuery(
+  location: string
+): Promise<{ query: string; stateHint?: string }> {
+  const trimmed = location.trim();
+  const geo = await resolveLocationGeo(trimmed);
+  if (geo?.zip) {
+    return { query: geo.zip, stateHint: geo.state };
+  }
+  if (geo) {
+    return {
+      query: `${geo.city}, ${geo.state}`,
+      stateHint: geo.state,
+    };
+  }
+  return { query: trimmed };
 }
 
 export function buildSearchQuery(params: FbSearchParams): string {
@@ -182,6 +316,20 @@ export function isMarketplaceLocationRedirect(
   }
 }
 
+export function getMarketplaceSlugFromUrl(pageUrl: string): string | null {
+  try {
+    const match = new URL(pageUrl).pathname.match(/\/marketplace\/([^/]+)\//i);
+    if (!match) return null;
+    const slug = match[1].toLowerCase();
+    if (slug === "category" || slug === "item" || slug === "create") {
+      return null;
+    }
+    return slug;
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureMarketplaceHome(page: Page): Promise<void> {
   if (page.url().toLowerCase().includes("marketplace")) {
     if (!(await isSessionLost(page))) {
@@ -214,45 +362,116 @@ export async function ensureMarketplaceHome(page: Page): Promise<void> {
   }
 }
 
-export async function setMarketplaceLocationViaPicker(
+async function openLocationEditor(page: Page): Promise<boolean> {
+  const triggerSelectors = [
+    '[aria-label*="Change location" i]',
+    '[aria-label*="location" i]',
+    'div[role="button"]:has-text("miles")',
+    'div[role="button"]:has-text("Within")',
+    'span:has-text("Within")',
+    'a[href*="/marketplace/"]:has-text("miles")',
+    'div[role="button"]:has-text("mi")',
+  ];
+
+  for (const selector of triggerSelectors) {
+    const trigger = page.locator(selector).first();
+    if ((await trigger.count()) > 0) {
+      await trigger.click({ force: true });
+      await randomDelay(800, 1200);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function selectLocationSuggestion(
+  page: Page,
+  stateHint?: string
+): Promise<void> {
+  await page.waitForTimeout(1500);
+  const options = page.locator(
+    '[role="option"], [role="listbox"] [role="option"]'
+  );
+  const count = await options.count();
+
+  if (count === 0) {
+    await page.keyboard.press("Enter");
+    await randomDelay(800, 1200);
+    return;
+  }
+
+  if (stateHint) {
+    for (let i = 0; i < count; i++) {
+      const text = (await options.nth(i).innerText()).toUpperCase();
+      if (text.includes(stateHint.toUpperCase())) {
+        await options.nth(i).click();
+        await randomDelay(800, 1200);
+        return;
+      }
+    }
+  }
+
+  await options.first().click();
+  await randomDelay(800, 1200);
+}
+
+async function applyRadiusSelection(
+  page: Page,
+  snappedRadius: number
+): Promise<void> {
+  const radiusOption = page.locator(`text="${snappedRadius} miles"`).first();
+  if ((await radiusOption.count()) > 0) {
+    await radiusOption.click();
+    await randomDelay(500, 800);
+    return;
+  }
+
+  const radiusSelect = page.locator("text=/\\d+ miles/").first();
+  if ((await radiusSelect.count()) > 0) {
+    await radiusSelect.click();
+    await randomDelay(400, 700);
+    const fallbackRadius = page.locator(`text="${snappedRadius} miles"`).first();
+    if ((await fallbackRadius.count()) > 0) {
+      await fallbackRadius.click();
+      await randomDelay(500, 800);
+    }
+  }
+}
+
+async function confirmLocationDialog(page: Page): Promise<void> {
+  const applyButton = page
+    .locator(
+      'button:has-text("Apply"), button:has-text("Save"), [aria-label*="Apply" i]'
+    )
+    .first();
+  if ((await applyButton.count()) > 0) {
+    await applyButton.click();
+    await randomDelay(2000, 3500);
+  }
+}
+
+/**
+ * Apply location on the current Marketplace page (home or search results).
+ * Works best after a search when the left-side location filter is visible.
+ */
+export async function applyMarketplaceSearchLocation(
   page: Page,
   location: string,
-  radius: number,
-  allowRetry = true
+  radius: number
 ): Promise<boolean> {
   if (!location.trim()) return false;
 
   const snappedRadius = snapRadiusMiles(radius);
+  const { query: pickerQuery, stateHint } =
+    await resolveLocationPickerQuery(location);
 
   try {
-    if (!page.url().includes("marketplace")) {
-      await page.goto("https://www.facebook.com/marketplace", {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-      await page.waitForLoadState("networkidle").catch(() => {});
-      await randomDelay(1500, 2500);
+    if (!page.url().toLowerCase().includes("marketplace")) {
+      await ensureMarketplaceHome(page);
     }
 
-    const triggerSelectors = [
-      '[aria-label*="Change location" i]',
-      '[aria-label*="Location" i]',
-      'div[role="button"]:has-text("miles")',
-      'div[role="button"]:has-text("mi")',
-      'span:has-text("Within")',
-      'a[href*="/marketplace/"]:has-text("miles")',
-    ];
-
-    let opened = false;
-    for (const selector of triggerSelectors) {
-      const trigger = page.locator(selector).first();
-      if ((await trigger.count()) > 0) {
-        await trigger.click({ force: true });
-        opened = true;
-        await randomDelay(800, 1200);
-        break;
-      }
-    }
+    const opened = await openLocationEditor(page);
 
     const locationInput = page
       .locator(
@@ -263,6 +482,7 @@ export async function setMarketplaceLocationViaPicker(
           'input[placeholder*="ZIP" i]',
           'input[placeholder*="zip" i]',
           'div[role="dialog"] input[type="text"]',
+          'div[role="dialog"] input[type="search"]',
         ].join(", ")
       )
       .first();
@@ -276,71 +496,40 @@ export async function setMarketplaceLocationViaPicker(
       await locationInput.click({ force: true });
       await locationInput.fill("");
       await randomDelay(200, 400);
-      await locationInput.fill(location);
-      await randomDelay(1200, 2000);
-
-      const suggestion = page
-        .locator('[role="option"], [role="listbox"] [role="option"]')
-        .first();
-      if ((await suggestion.count()) > 0) {
-        await suggestion.click();
-        await randomDelay(800, 1200);
-      } else {
-        await page.keyboard.press("Enter");
-        await randomDelay(800, 1200);
-      }
+      await locationInput.fill(pickerQuery);
+      await randomDelay(1500, 2500);
+      await selectLocationSuggestion(page, stateHint);
     }
 
-    const radiusOption = page
-      .locator(`text="${snappedRadius} miles"`)
-      .first();
-    if ((await radiusOption.count()) > 0) {
-      await radiusOption.click();
-      await randomDelay(500, 800);
-    } else {
-      const radiusSelect = page.locator("text=/\\d+ miles/").first();
-      if ((await radiusSelect.count()) > 0) {
-        await radiusSelect.click();
-        await randomDelay(400, 700);
-        const fallbackRadius = page
-          .locator(`text="${snappedRadius} miles"`)
-          .first();
-        if ((await fallbackRadius.count()) > 0) {
-          await fallbackRadius.click();
-          await randomDelay(500, 800);
-        }
-      }
-    }
-
-    const applyButton = page
-      .locator(
-        'button:has-text("Apply"), button:has-text("Save"), [aria-label*="Apply" i]'
-      )
-      .first();
-    if ((await applyButton.count()) > 0) {
-      await applyButton.click();
-      await randomDelay(2000, 3500);
-    }
-
+    await applyRadiusSelection(page, snappedRadius);
+    await confirmLocationDialog(page);
     await page.waitForLoadState("networkidle").catch(() => {});
+    await randomDelay(2000, 3000);
+
     console.log(
-      `Marketplace location picker applied: ${location} (${snappedRadius} mi)`
+      `Marketplace location applied: ${pickerQuery} (${snappedRadius} mi), URL: ${page.url()}`
     );
-
-    if (!page.url().toLowerCase().includes("marketplace")) {
-      console.warn(
-        `Location picker left non-Marketplace page (${page.url()}), returning to Marketplace home`
-      );
-      await ensureMarketplaceHome(page);
-      if (allowRetry) {
-        return setMarketplaceLocationViaPicker(page, location, radius, false);
-      }
-      return false;
-    }
-
     return true;
   } catch (error) {
-    console.warn("Could not set marketplace location via picker:", error);
+    console.warn("Could not apply marketplace location:", error);
     return false;
   }
+}
+
+/** @deprecated Use applyMarketplaceSearchLocation */
+export async function setMarketplaceLocationViaPicker(
+  page: Page,
+  location: string,
+  radius: number,
+  allowRetry = true
+): Promise<boolean> {
+  const applied = await applyMarketplaceSearchLocation(page, location, radius);
+  if (applied) return true;
+
+  if (allowRetry && !page.url().toLowerCase().includes("marketplace")) {
+    await ensureMarketplaceHome(page);
+    return setMarketplaceLocationViaPicker(page, location, radius, false);
+  }
+
+  return false;
 }

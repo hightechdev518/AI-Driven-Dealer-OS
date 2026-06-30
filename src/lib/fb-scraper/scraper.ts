@@ -11,12 +11,13 @@ import {
 } from "./multilogin";
 import { connectMultiloginBrowser } from "./browser-connect";
 import {
+  applyMarketplaceSearchLocation,
   buildMarketplaceSearchUrl,
   buildSearchQuery,
   ensureMarketplaceHome,
+  getMarketplaceSlugFromUrl,
   isMarketplaceLocationRedirect,
   resolveLocationSlug,
-  setMarketplaceLocationViaPicker,
 } from "./marketplace-location";
 import {
   FbListing,
@@ -413,36 +414,66 @@ async function navigateMarketplaceSearch(
 
   await ensureMarketplaceHome(page);
 
-  if (location && query) {
-    const slug = await resolveLocationSlug(location);
-    if (slug && (await tryDirectMarketplaceUrl(page, slug, params))) {
-      await logMarketplaceSearchState(page);
-      return;
-    }
-    await ensureMarketplaceHome(page);
-  }
-
   if (location) {
-    const locationSet = await setMarketplaceLocationViaPicker(
-      page,
-      location,
-      params.radius
-    );
-    if (!locationSet) {
-      console.warn(
-        `Failed to apply location "${location}" — results may reflect the profile default city`
-      );
+    const slug = await resolveLocationSlug(location);
+    if (slug) {
+      console.log(`Resolved "${location}" to Marketplace metro slug "${slug}"`);
+    }
+
+    if (location && query && slug) {
+      if (await tryDirectMarketplaceUrl(page, slug, params)) {
+        const appliedSlug = getMarketplaceSlugFromUrl(page.url());
+        console.log(
+          `Direct URL search using slug "${appliedSlug ?? slug}" for ${location}`
+        );
+        await logMarketplaceSearchState(page);
+        return;
+      }
+      await ensureMarketplaceHome(page);
     }
   }
 
   if (query) {
     await runMarketplaceSearchInPage(page, params);
-    return;
   }
 
-  console.log("No vehicle query provided, using current marketplace page");
-  await page.waitForTimeout(2000);
-  await logMarketplaceSearchState(page);
+  if (location) {
+    const applied = await applyMarketplaceSearchLocation(
+      page,
+      location,
+      params.radius
+    );
+
+    if (!applied && query) {
+      const slug = await resolveLocationSlug(location);
+      if (slug && (await tryDirectMarketplaceUrl(page, slug, params))) {
+        console.log(
+          `Applied location via direct URL fallback slug "${slug}" for ${location}`
+        );
+        await logMarketplaceSearchState(page);
+        return;
+      }
+    }
+
+    if (!applied) {
+      console.warn(
+        `Failed to apply location "${location}" — results may reflect the profile default city`
+      );
+    } else {
+      await page.waitForTimeout(4000);
+      await page.waitForLoadState("networkidle").catch(() => {});
+      const appliedSlug = getMarketplaceSlugFromUrl(page.url());
+      if (appliedSlug) {
+        console.log(`Location filter active, marketplace slug: ${appliedSlug}`);
+      }
+    }
+  }
+
+  if (!query) {
+    console.log("No vehicle query provided, using current marketplace page");
+    await page.waitForTimeout(2000);
+    await logMarketplaceSearchState(page);
+  }
 }
 
 async function scrapeWithPage(
