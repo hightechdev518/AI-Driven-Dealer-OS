@@ -9,6 +9,15 @@ export interface FbSearchParams {
   location: string;
   radius: number;
   resultLimit: number;
+  /** 0 = first batch; 1 = skip resultLimit listings; 2 = skip 2×resultLimit, etc. */
+  resultBatch: number;
+}
+
+export interface FbSearchResult {
+  results: FbListing[];
+  resultBatch: number;
+  skipCount: number;
+  hasMore: boolean;
 }
 
 export interface FbListing {

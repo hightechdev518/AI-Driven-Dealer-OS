@@ -13,6 +13,7 @@ import { connectMultiloginBrowser } from "./browser-connect";
 import {
   FbListing,
   FbSearchParams,
+  FbSearchResult,
   ScraperError,
 } from "./types";
 
@@ -187,9 +188,17 @@ async function applyMarketplaceFilters(
 async function extractListings(
   page: Page,
   params: FbSearchParams
-): Promise<FbListing[]> {
+): Promise<FbSearchResult> {
   const seen = new Set<string>();
   const results: FbListing[] = [];
+  const skipCount = params.resultBatch * params.resultLimit;
+  let skipped = 0;
+  let scrollAttempts = 0;
+  let feedExhausted = false;
+  const maxScrollAttempts = Math.max(
+    15,
+    Math.ceil((skipCount + params.resultLimit) / 8) + 10
+  );
 
   while (results.length < params.resultLimit) {
     const batch = await page.evaluate(() => {
@@ -250,6 +259,11 @@ async function extractListings(
       if (seen.has(item.url)) continue;
       seen.add(item.url);
 
+      if (skipped < skipCount) {
+        skipped++;
+        continue;
+      }
+
       const price = parsePrice(item.priceText);
       const mileage = parseMileage(item.title + " " + item.locationText);
       const daysListed = parseDaysListed(item.daysText);
@@ -287,15 +301,29 @@ async function extractListings(
     const previousCount = seen.size;
     await humanScroll(page, 3);
     await randomDelay(1500, 2500);
+    scrollAttempts++;
 
     const newCount = await page.evaluate(() => {
       return document.querySelectorAll('a[href*="/marketplace/item/"]').length;
     });
 
-    if (newCount <= previousCount) break;
+    if (newCount <= previousCount || scrollAttempts >= maxScrollAttempts) {
+      feedExhausted = true;
+      break;
+    }
   }
 
-  return results.slice(0, params.resultLimit);
+  if (skipped < skipCount) {
+    feedExhausted = true;
+  }
+
+  const listings = results.slice(0, params.resultLimit);
+  return {
+    results: listings,
+    resultBatch: params.resultBatch,
+    skipCount,
+    hasMore: listings.length >= params.resultLimit && !feedExhausted,
+  };
 }
 
 function extractLocation(text: string): string | null {
@@ -394,7 +422,7 @@ async function scrapeWithPage(
   page: Page,
   params: FbSearchParams,
   isRetry: boolean
-): Promise<FbListing[]> {
+): Promise<FbSearchResult> {
   await page.setViewportSize({
     width: 1366 + Math.floor(Math.random() * 200),
     height: 768 + Math.floor(Math.random() * 100),
@@ -444,7 +472,7 @@ async function getBrowserContext(browser: Browser): Promise<{
 
 export async function scrapeFacebookMarketplace(
   params: FbSearchParams
-): Promise<FbListing[]> {
+): Promise<FbSearchResult> {
   const config = await getMultiloginConfig();
   let browser: Browser | null = null;
 
@@ -455,13 +483,13 @@ export async function scrapeFacebookMarketplace(
     browser = await connectMultiloginBrowser(session);
 
     const { page } = await getBrowserContext(browser);
-    const results = await scrapeWithPage(page, params, false);
+    const searchResult = await scrapeWithPage(page, params, false);
 
     console.log(
-      `FB scraper: found ${results.length} listings for ${params.make} ${params.model}`
+      `FB scraper: found ${searchResult.results.length} listings (batch ${params.resultBatch}, skipped ${searchResult.skipCount}) for ${params.make} ${params.model}`
     );
 
-    return results;
+    return searchResult;
   } catch (error) {
     if (error instanceof ScraperError) throw error;
     console.error("FB scraper error:", error);
@@ -493,5 +521,6 @@ export function parseSearchParams(body: Record<string, unknown>): FbSearchParams
     location: String(body.location ?? "").trim(),
     radius: Number(body.radius) || 25,
     resultLimit: Number(body.resultLimit) || 25,
+    resultBatch: Math.max(0, Number(body.resultBatch) || 0),
   };
 }

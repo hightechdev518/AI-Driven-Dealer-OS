@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink, Loader2, MessageCircle, RotateCcw, Save, Search } from "lucide-react";
+import { ChevronRight, ExternalLink, Loader2, MessageCircle, RotateCcw, Save, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,11 @@ export default function MarketSearchContent() {
 
   const [form, setForm] = useState(defaultForm);
   const [results, setResults] = useState<FbListing[]>([]);
+  const [resultBatch, setResultBatch] = useState(0);
+  const [batchInput, setBatchInput] = useState("0");
+  const [skipCount, setSkipCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,46 +56,101 @@ export default function MarketSearchContent() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSearch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setResetMessage(null);
-    setResults([]);
-    setSavedUrls(new Set());
+  const runSearch = useCallback(
+    async (batch: number) => {
+      setLoading(true);
+      setError(null);
+      setResetMessage(null);
+      setResults([]);
+      setHasSearched(true);
+      setResultBatch(batch);
+      setBatchInput(String(batch));
 
-    try {
-      const res = await fetch("/api/fb-scraper", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          make: form.make,
-          model: form.model,
-          yearFrom: form.yearFrom ? Number(form.yearFrom) : 0,
-          yearTo: form.yearTo ? Number(form.yearTo) : 0,
-          mileageMax: form.mileageMax ? Number(form.mileageMax) : 0,
-          priceMin: form.priceMin ? Number(form.priceMin) : 0,
-          priceMax: form.priceMax ? Number(form.priceMax) : 0,
-          location: form.location,
-          radius: Number(form.radius),
-          resultLimit: Number(form.resultLimit),
-        }),
-      });
+      try {
+        const res = await fetch("/api/fb-scraper", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            make: form.make,
+            model: form.model,
+            yearFrom: form.yearFrom ? Number(form.yearFrom) : 0,
+            yearTo: form.yearTo ? Number(form.yearTo) : 0,
+            mileageMax: form.mileageMax ? Number(form.mileageMax) : 0,
+            priceMin: form.priceMin ? Number(form.priceMin) : 0,
+            priceMax: form.priceMax ? Number(form.priceMax) : 0,
+            location: form.location,
+            radius: Number(form.radius),
+            resultLimit: Number(form.resultLimit),
+            resultBatch: batch,
+          }),
+        });
 
-      const data = await res.json();
+        const data = await res.json();
 
-      if (!res.ok) {
-        setError(data.error || "Search failed");
-        return;
+        if (!res.ok) {
+          setError(data.error || "Search failed");
+          setHasMore(false);
+          setSkipCount(0);
+          return;
+        }
+
+        setResults(Array.isArray(data.results) ? data.results : []);
+        setSkipCount(typeof data.skipCount === "number" ? data.skipCount : batch * Number(form.resultLimit));
+        setHasMore(Boolean(data.hasMore));
+      } catch (err) {
+        console.error(err);
+        setError("Network error while scraping. Is Multilogin running locally?");
+        setHasMore(false);
+        setSkipCount(0);
+      } finally {
+        setLoading(false);
       }
+    },
+    [form]
+  );
 
-      setResults(Array.isArray(data.results) ? data.results : []);
-    } catch (err) {
-      console.error(err);
-      setError("Network error while scraping. Is Multilogin running locally?");
-    } finally {
-      setLoading(false);
-    }
-  }, [form]);
+  const handleSearch = useCallback(async () => {
+    setSavedUrls(new Set());
+    await runSearch(0);
+  }, [runSearch]);
+
+  const handleNextResults = useCallback(async () => {
+    await runSearch(resultBatch + 1);
+  }, [resultBatch, runSearch]);
+
+  const handleGoToBatch = useCallback(async () => {
+    const batch = Math.max(0, Number.parseInt(batchInput, 10) || 0);
+    setBatchInput(String(batch));
+    await runSearch(batch);
+  }, [batchInput, runSearch]);
+
+  const canGoNext =
+    hasSearched && hasMore && !loading && !resetting && (form.make || form.model);
+
+  const paginationFooter = !loading &&
+    hasSearched &&
+    (results.length > 0 || resultBatch > 0) && (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
+      <p className="text-sm text-slate-400">
+        {hasMore
+          ? "More listings may be available."
+          : results.length > 0
+            ? "End of available listings for this search."
+            : resultBatch > 0
+              ? "No more listings found for this search."
+              : "No listings matched your filters."}
+      </p>
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={handleNextResults}
+        disabled={!canGoNext}
+      >
+        <ChevronRight className="h-4 w-4" />
+        Next results
+      </Button>
+    </div>
+  );
 
   const handleResetSession = useCallback(async () => {
     setResetting(true);
@@ -273,6 +333,21 @@ export default function MarketSearchContent() {
                 ))}
               </select>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="resultBatch">Result batch</Label>
+              <Input
+                id="resultBatch"
+                type="number"
+                min={0}
+                placeholder="0"
+                value={batchInput}
+                onChange={(e) => setBatchInput(e.target.value)}
+              />
+              <p className="text-xs text-slate-500">
+                Batch 0 = first {form.resultLimit} results. Batch 2 skips{" "}
+                {Number(form.resultLimit) * 2} listings.
+              </p>
+            </div>
           </div>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -292,6 +367,37 @@ export default function MarketSearchContent() {
                   Search Facebook Marketplace
                 </>
               )}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleNextResults}
+              disabled={!canGoNext}
+              className="min-w-[180px]"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <ChevronRight className="h-4 w-4" />
+                  Next results
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleGoToBatch}
+              disabled={
+                loading ||
+                resetting ||
+                (!form.make && !form.model)
+              }
+            >
+              Go to batch
             </Button>
             <Button
               type="button"
@@ -346,14 +452,22 @@ export default function MarketSearchContent() {
         </CardContent>
       </Card>
 
-      {(loading || results.length > 0) && (
+      {(loading || hasSearched) && (
         <Card>
           <CardHeader>
             <CardTitle>
               {loading
                 ? "Searching..."
-                : `${results.length} result${results.length !== 1 ? "s" : ""} found`}
+                : results.length > 0
+                  ? `${results.length} result${results.length !== 1 ? "s" : ""} found`
+                  : "No listings in this batch"}
             </CardTitle>
+            {!loading && hasSearched && (
+              <p className="text-sm text-slate-400">
+                Batch {resultBatch}
+                {skipCount > 0 && ` — skipped first ${skipCount} listings`}
+              </p>
+            )}
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -363,14 +477,27 @@ export default function MarketSearchContent() {
                   Launching browser via Multilogin and scraping listings...
                 </p>
                 <p className="text-xs text-slate-500">
-                  This may take 1–3 minutes depending on filters and result count.
+                  {resultBatch > 0
+                    ? `Skipping to batch ${resultBatch} may take longer while scrolling past earlier listings.`
+                    : "This may take 1–3 minutes depending on filters and result count."}
                 </p>
               </div>
             ) : results.length === 0 ? (
-              <p className="py-8 text-center text-slate-400">
-                No listings matched your filters.
-              </p>
+              <div className="space-y-4 py-8 text-center">
+                <p className="text-slate-400">
+                  {resultBatch > 0
+                    ? "No more listings found for this search."
+                    : "No listings matched your filters."}
+                </p>
+                {resultBatch > 0 && (
+                  <p className="text-xs text-slate-500">
+                    Try a lower batch number or run a new search from batch 0.
+                  </p>
+                )}
+                {paginationFooter}
+              </div>
             ) : (
+              <>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -449,6 +576,8 @@ export default function MarketSearchContent() {
                   ))}
                 </TableBody>
               </Table>
+              {paginationFooter}
+              </>
             )}
           </CardContent>
         </Card>

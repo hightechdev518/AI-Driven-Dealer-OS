@@ -19,11 +19,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const results = await scrapeFacebookMarketplace(params);
+    const searchResult = await scrapeFacebookMarketplace(params);
 
     return NextResponse.json({
-      count: results.length,
-      results,
+      count: searchResult.results.length,
+      results: searchResult.results,
+      resultBatch: searchResult.resultBatch,
+      skipCount: searchResult.skipCount,
+      hasMore: searchResult.hasMore,
     });
   } catch (error) {
     console.error("POST /api/fb-scraper:", error);
