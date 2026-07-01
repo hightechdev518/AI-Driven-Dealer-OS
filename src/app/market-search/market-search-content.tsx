@@ -253,8 +253,7 @@ export default function MarketSearchContent() {
                 onChange={(e) => updateField("location", e.target.value)}
               />
               <p className="text-xs text-slate-500">
-                ZIP codes are resolved to a Facebook Marketplace city. Use
-                &quot;City, ST&quot; for best results (e.g. Austin, TX).
+                ZIP codes or city names work (e.g. 78701, Austin TX, Austin, TX).
               </p>
             </div>
             <div className="space-y-2">

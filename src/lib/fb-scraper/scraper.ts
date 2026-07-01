@@ -15,7 +15,7 @@ import {
   buildMarketplaceSearchUrl,
   buildSearchQuery,
   ensureMarketplaceHome,
-  getMarketplaceSlugFromUrl,
+  gotoMetroBrowsePage,
   isMarketplaceLocationRedirect,
   resolveLocationSlug,
 } from "./marketplace-location";
@@ -297,11 +297,27 @@ async function logMarketplaceSearchState(page: Page): Promise<void> {
   await logListingSelectorCounts(page);
 }
 
+async function countVisibleListings(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    return document.querySelectorAll('a[href*="/marketplace/item/"]').length;
+  });
+}
+
+function hasExtraUiFilters(params: FbSearchParams): boolean {
+  return (
+    params.yearFrom > 0 ||
+    params.yearTo > 0 ||
+    params.mileageMax > 0
+  );
+}
+
 async function runMarketplaceSearchInPage(
   page: Page,
   params: FbSearchParams
 ): Promise<void> {
-  await ensureMarketplaceHome(page);
+  if (!page.url().toLowerCase().includes("marketplace")) {
+    await ensureMarketplaceHome(page);
+  }
 
   const query = buildSearchQuery(params);
   if (!query) {
@@ -411,65 +427,50 @@ async function navigateMarketplaceSearch(
 ): Promise<void> {
   const query = buildSearchQuery(params);
   const location = params.location.trim();
+  const slug = location ? await resolveLocationSlug(location) : null;
 
   await ensureMarketplaceHome(page);
 
   if (location) {
-    const slug = await resolveLocationSlug(location);
     if (slug) {
       console.log(`Resolved "${location}" to Marketplace metro slug "${slug}"`);
+      const metroOk = await gotoMetroBrowsePage(page, slug);
+      if (!metroOk) {
+        console.warn(
+          `Metro browse failed for "${slug}", applying location picker before search`
+        );
+        await applyMarketplaceSearchLocation(page, location, params.radius);
+      }
+    } else {
+      console.warn(
+        `No metro slug for "${location}", applying location picker before search`
+      );
+      await applyMarketplaceSearchLocation(page, location, params.radius);
     }
+  }
 
-    if (location && query && slug) {
-      if (await tryDirectMarketplaceUrl(page, slug, params)) {
-        const appliedSlug = getMarketplaceSlugFromUrl(page.url());
+  if (location && query && slug) {
+    if (await tryDirectMarketplaceUrl(page, slug, params)) {
+      const listingCount = await countVisibleListings(page);
+      if (listingCount > 0) {
         console.log(
-          `Direct URL search using slug "${appliedSlug ?? slug}" for ${location}`
+          `Direct URL search found ${listingCount} visible listings for ${location}`
         );
         await logMarketplaceSearchState(page);
         return;
       }
-      await ensureMarketplaceHome(page);
+      console.warn(
+        `Direct URL loaded but 0 listings visible — falling back to in-page search`
+      );
+      await gotoMetroBrowsePage(page, slug);
     }
   }
 
   if (query) {
     await runMarketplaceSearchInPage(page, params);
-  }
-
-  if (location) {
-    const applied = await applyMarketplaceSearchLocation(
-      page,
-      location,
-      params.radius
-    );
-
-    if (!applied && query) {
-      const slug = await resolveLocationSlug(location);
-      if (slug && (await tryDirectMarketplaceUrl(page, slug, params))) {
-        console.log(
-          `Applied location via direct URL fallback slug "${slug}" for ${location}`
-        );
-        await logMarketplaceSearchState(page);
-        return;
-      }
-    }
-
-    if (!applied) {
-      console.warn(
-        `Failed to apply location "${location}" — results may reflect the profile default city`
-      );
-    } else {
-      await page.waitForTimeout(4000);
-      await page.waitForLoadState("networkidle").catch(() => {});
-      const appliedSlug = getMarketplaceSlugFromUrl(page.url());
-      if (appliedSlug) {
-        console.log(`Location filter active, marketplace slug: ${appliedSlug}`);
-      }
-    }
-  }
-
-  if (!query) {
+    const listingCount = await countVisibleListings(page);
+    console.log(`In-page search shows ${listingCount} visible listings`);
+  } else if (!query) {
     console.log("No vehicle query provided, using current marketplace page");
     await page.waitForTimeout(2000);
     await logMarketplaceSearchState(page);
@@ -505,10 +506,21 @@ async function scrapeWithPage(
     );
   }
 
-  await applyMarketplaceFilters(page, params);
-  await humanScroll(page, 2);
+  if (hasExtraUiFilters(params)) {
+    await applyMarketplaceFilters(page, params);
+  }
 
-  return extractListings(page, params);
+  await humanScroll(page, 3);
+  await randomDelay(2000, 3000);
+
+  const searchResult = await extractListings(page, params);
+  if (searchResult.results.length === 0) {
+    const visible = await countVisibleListings(page);
+    console.warn(
+      `Extracted 0 listings (${visible} item links visible on page at ${page.url()})`
+    );
+  }
+  return searchResult;
 }
 
 async function getBrowserContext(browser: Browser): Promise<{

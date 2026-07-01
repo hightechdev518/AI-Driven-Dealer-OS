@@ -103,12 +103,136 @@ const CITY_SLUGS: Record<string, string> = {
   "fort worth, tx": "fortworth",
 };
 
-const STATE_DEFAULT_SLUG: Record<string, string> = {
-  NJ: "nyc",
-  NY: "nyc",
-  CT: "nyc",
-  FL: "orlando",
+const STATE_NAME_TO_ABBREV: Record<string, string> = {
+  alabama: "AL",
+  alaska: "AK",
+  arizona: "AZ",
+  arkansas: "AR",
+  california: "CA",
+  colorado: "CO",
+  connecticut: "CT",
+  delaware: "DE",
+  florida: "FL",
+  georgia: "GA",
+  hawaii: "HI",
+  idaho: "ID",
+  illinois: "IL",
+  indiana: "IN",
+  iowa: "IA",
+  kansas: "KS",
+  kentucky: "KY",
+  louisiana: "LA",
+  maine: "ME",
+  maryland: "MD",
+  massachusetts: "MA",
+  michigan: "MI",
+  minnesota: "MN",
+  mississippi: "MS",
+  missouri: "MO",
+  montana: "MT",
+  nebraska: "NE",
+  nevada: "NV",
+  "new hampshire": "NH",
+  "new jersey": "NJ",
+  "new mexico": "NM",
+  "new york": "NY",
+  "north carolina": "NC",
+  "north dakota": "ND",
+  ohio: "OH",
+  oklahoma: "OK",
+  oregon: "OR",
+  pennsylvania: "PA",
+  "rhode island": "RI",
+  "south carolina": "SC",
+  "south dakota": "SD",
+  tennessee: "TN",
+  texas: "TX",
+  utah: "UT",
+  vermont: "VT",
+  virginia: "VA",
+  washington: "WA",
+  "west virginia": "WV",
+  wisconsin: "WI",
+  wyoming: "WY",
 };
+
+function normalizeState(value: string): string {
+  const trimmed = value.trim();
+  if (/^[A-Za-z]{2}$/.test(trimmed)) {
+    return trimmed.toUpperCase();
+  }
+  return STATE_NAME_TO_ABBREV[normalizeKey(trimmed)] ?? trimmed.toUpperCase();
+}
+
+function parseCityStateInput(
+  location: string
+): { city: string; state: string } | null {
+  const trimmed = location.trim();
+  if (!trimmed || /^\d{5}$/.test(trimmed)) return null;
+
+  const commaMatch = trimmed.match(/^([^,]+),\s*(.+)$/);
+  if (commaMatch) {
+    return {
+      city: commaMatch[1].trim(),
+      state: normalizeState(commaMatch[2]),
+    };
+  }
+
+  const spaceMatch = trimmed.match(/^(.+?)\s+([A-Za-z]{2})$/);
+  if (spaceMatch) {
+    return {
+      city: spaceMatch[1].trim(),
+      state: spaceMatch[2].toUpperCase(),
+    };
+  }
+
+  return null;
+}
+
+function matchMetroSlugFromCityName(city: string): string | null {
+  const key = normalizeKey(city);
+  for (const metro of METRO_CENTERS) {
+    if (
+      normalizeKey(metro.name) === key ||
+      metro.slug === key.replace(/\s+/g, "") ||
+      normalizeKey(metro.name).startsWith(key) ||
+      key.startsWith(normalizeKey(metro.name))
+    ) {
+      return metro.slug;
+    }
+  }
+  return null;
+}
+
+async function fetchCityStateGeo(
+  city: string,
+  state: string
+): Promise<LocationGeo | null> {
+  try {
+    const query = encodeURIComponent(`${city}, ${state}, USA`);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1`,
+      {
+        signal: AbortSignal.timeout(8000),
+        headers: {
+          "User-Agent": "DealerAIOS-MarketSearch/1.0",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as Array<{ lat: string; lon: string }>;
+    const place = data[0];
+    if (!place) return null;
+    return {
+      city,
+      state: state.toUpperCase(),
+      latitude: Number.parseFloat(place.lat),
+      longitude: Number.parseFloat(place.lon),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export interface LocationGeo {
   city: string;
@@ -208,14 +332,29 @@ export async function resolveLocationGeo(
     return fetchZipGeo(trimmed);
   }
 
-  const commaMatch = trimmed.match(/^([^,]+),\s*([A-Za-z]{2})$/);
-  if (commaMatch) {
+  const parsed = parseCityStateInput(trimmed);
+  if (parsed) {
+    const geocoded = await fetchCityStateGeo(parsed.city, parsed.state);
+    if (geocoded) return geocoded;
     return {
-      city: commaMatch[1].trim(),
-      state: commaMatch[2].toUpperCase(),
+      city: parsed.city,
+      state: parsed.state,
       latitude: NaN,
       longitude: NaN,
     };
+  }
+
+  const metroSlug = matchMetroSlugFromCityName(trimmed);
+  if (metroSlug) {
+    const metro = METRO_CENTERS.find((entry) => entry.slug === metroSlug);
+    if (metro) {
+      return {
+        city: metro.name,
+        state: "",
+        latitude: metro.lat,
+        longitude: metro.lng,
+      };
+    }
   }
 
   return null;
@@ -236,22 +375,22 @@ export async function resolveLocationSlug(
       return findNearestMetroSlug(geo.latitude, geo.longitude);
     }
 
-    const stateDefault = STATE_DEFAULT_SLUG[geo.state.toUpperCase()];
-    if (stateDefault) return stateDefault;
+    const metroFromCity = matchMetroSlugFromCityName(geo.city);
+    if (metroFromCity) return metroFromCity;
   }
 
-  const commaMatch = trimmed.match(/^([^,]+),\s*([A-Za-z]{2})$/);
-  if (commaMatch) {
-    const mapped = CITY_SLUGS[cityStateKey(commaMatch[1], commaMatch[2])];
+  const parsed = parseCityStateInput(trimmed);
+  if (parsed) {
+    const mapped = CITY_SLUGS[cityStateKey(parsed.city, parsed.state)];
     if (mapped) return mapped;
-    const stateDefault = STATE_DEFAULT_SLUG[commaMatch[2].toUpperCase()];
-    if (stateDefault) return stateDefault;
+    const metroFromCity = matchMetroSlugFromCityName(parsed.city);
+    if (metroFromCity) return metroFromCity;
   }
 
   const mapped = CITY_SLUGS[normalizeKey(trimmed)];
   if (mapped) return mapped;
 
-  return null;
+  return matchMetroSlugFromCityName(trimmed);
 }
 
 /** Text to type into Facebook's location picker (ZIP works best). */
@@ -292,7 +431,6 @@ export function buildMarketplaceSearchUrl(
   );
   if (query) url.searchParams.set("query", query);
   url.searchParams.set("radius", String(snapRadiusMiles(params.radius)));
-  url.searchParams.set("category", "vehicles");
   url.searchParams.set("exact", "false");
   if (params.priceMin > 0) {
     url.searchParams.set("minPrice", String(Math.round(params.priceMin)));
@@ -314,6 +452,42 @@ export function isMarketplaceLocationRedirect(
   } catch {
     return true;
   }
+}
+
+export async function gotoMetroBrowsePage(
+  page: Page,
+  slug: string
+): Promise<boolean> {
+  const metroUrl = `https://www.facebook.com/marketplace/${slug}`;
+  console.log(`Opening Marketplace metro browse: ${metroUrl}`);
+
+  try {
+    await page.goto(metroUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await randomDelay(2000, 3000);
+  } catch (error) {
+    console.warn(`Failed to open metro browse page for ${slug}:`, error);
+    return false;
+  }
+
+  if (await isSessionLost(page)) return false;
+
+  const onMarketplace = page.url().toLowerCase().includes("marketplace");
+  const onTargetMetro = page.url()
+    .toLowerCase()
+    .includes(`/marketplace/${slug.toLowerCase()}`);
+
+  if (onTargetMetro) return true;
+  if (onMarketplace) {
+    console.warn(
+      `Metro browse for "${slug}" landed on ${page.url()} (generic marketplace)`
+    );
+    return true;
+  }
+  return false;
 }
 
 export function getMarketplaceSlugFromUrl(pageUrl: string): string | null {
