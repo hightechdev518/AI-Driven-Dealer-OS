@@ -759,8 +759,7 @@ export async function ensureMarketplaceTargetLocation(
   if (!location.trim()) return;
 
   const snappedRadius = snapRadiusMiles(radius);
-  const { query: pickerQuery, stateHint } =
-    await resolveLocationPickerQuery(location);
+  const { query: pickerQuery } = await resolveLocationPickerQuery(location);
 
   const slug = await resolveLocationSlug(location);
   if (slug) {

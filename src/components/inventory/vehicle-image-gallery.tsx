@@ -24,12 +24,10 @@ export function VehicleImageGallery({
 }: VehicleImageGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [failed, setFailed] = useState<Record<number, boolean>>({});
-  const imagesKey = images.join("|");
-
   useEffect(() => {
     setActiveIndex(getCoverImageIndex(images, coverUrl));
     setFailed({});
-  }, [imagesKey, coverUrl]);
+  }, [images, coverUrl]);
 
   useEffect(() => {
     if (activeIndex >= images.length) {
