@@ -1,6 +1,6 @@
 import type { Page } from "playwright-core";
 import { isSessionLost } from "./fb-auth";
-import type { FbSearchParams } from "./types";
+import type { FbSearchParams, FbListing } from "./types";
 import { ScraperError } from "./types";
 import { randomDelay } from "./human-behavior";
 
@@ -403,7 +403,7 @@ export async function resolveLocationPickerQuery(
   const trimmed = location.trim();
   const geo = await resolveLocationGeo(trimmed);
   if (geo?.zip) {
-    return { query: geo.zip, stateHint: geo.state };
+    return { query: `${geo.zip}, ${geo.state}`, stateHint: geo.state };
   }
   if (geo) {
     return {
@@ -422,6 +422,29 @@ export function buildSearchQuery(params: FbSearchParams): string {
   if (params.make) parts.push(params.make);
   if (params.model) parts.push(params.model);
   return parts.join(" ").trim();
+}
+
+export async function filterListingsForTargetLocation(
+  listings: FbListing[],
+  location: string
+): Promise<FbListing[]> {
+  const geo = await resolveLocationGeo(location);
+  if (!geo?.state) return listings;
+
+  const state = geo.state.toUpperCase();
+  const filtered = listings.filter((listing) => {
+    if (!listing.location) return true;
+    const text = listing.location.toUpperCase();
+    return text.includes(`, ${state}`) || text.endsWith(` ${state}`);
+  });
+
+  if (filtered.length < listings.length) {
+    console.log(
+      `Filtered ${listings.length - filtered.length} listing(s) outside ${state} for target "${location}"`
+    );
+  }
+
+  return filtered;
 }
 
 export function buildMarketplaceSearchUrl(
@@ -539,12 +562,108 @@ export async function ensureMarketplaceHome(page: Page): Promise<void> {
   }
 }
 
+async function readActiveLocationLabel(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const candidates: string[] = [];
+    const patterns = [/within \d+/i, /\d+\s*miles/i, /radius/i];
+
+    document.querySelectorAll("span, div, a, button").forEach((el) => {
+      const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (text.length < 8 || text.length > 160) return;
+      if (patterns.some((pattern) => pattern.test(text))) {
+        candidates.push(text);
+      }
+    });
+
+    return candidates.slice(0, 5).join(" | ");
+  });
+}
+
+async function readListingLocationSamples(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const samples: string[] = [];
+    const anchors = document.querySelectorAll('a[href*="/marketplace/item/"]');
+
+    anchors.forEach((anchor) => {
+      if (samples.length >= 10) return;
+      const card =
+        anchor.closest('[data-testid="marketplace-search-feed-item"]') ||
+        anchor.closest('[role="article"]') ||
+        anchor.parentElement?.parentElement;
+      const text = (card?.textContent || anchor.textContent || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text) samples.push(text.slice(0, 220));
+    });
+
+    return samples;
+  });
+}
+
+function listingSamplesMatchTargetState(
+  samples: string[],
+  targetState: string
+): boolean {
+  if (!targetState || samples.length === 0) return false;
+
+  const state = targetState.toUpperCase();
+  const statePattern = new RegExp(`,\\s*${state}\\b|\\b${state}\\b`, "i");
+  const matching = samples.filter((sample) => statePattern.test(sample));
+
+  if (state !== "CA") {
+    const caOnly = samples.every((sample) => /,\s*CA\b|\bCalifornia\b/i.test(sample));
+    if (caOnly) return false;
+  }
+
+  return matching.length > 0 || matching.length >= Math.ceil(samples.length / 3);
+}
+
+async function verifyTargetLocationApplied(
+  page: Page,
+  location: string
+): Promise<boolean> {
+  const geo = await resolveLocationGeo(location);
+  const stateHint = geo?.state?.toUpperCase();
+  const cityHint = geo?.city?.toUpperCase();
+
+  const activeLabel = (await readActiveLocationLabel(page)).toUpperCase();
+  if (stateHint && activeLabel.includes(stateHint)) return true;
+  if (cityHint && activeLabel.includes(cityHint)) return true;
+
+  const samples = await readListingLocationSamples(page);
+  if (stateHint && listingSamplesMatchTargetState(samples, stateHint)) {
+    return true;
+  }
+
+  console.log(
+    `Location verification failed for "${location}". Active label: "${activeLabel}". Sample listings: ${samples.slice(0, 3).join(" || ")}`
+  );
+  return false;
+}
+
 async function openLocationEditor(page: Page): Promise<boolean> {
+  const filtersButton = page
+    .locator('button, div[role="button"]')
+    .filter({ hasText: /^Filters$/i })
+    .first();
+  if ((await filtersButton.count()) > 0) {
+    await filtersButton.click({ force: true });
+    await randomDelay(1000, 1500);
+  }
+
+  const locationLabels = page.getByText(/^Location$/i);
+  if ((await locationLabels.count()) > 0) {
+    await locationLabels.last().click({ force: true });
+    await randomDelay(800, 1200);
+    return true;
+  }
+
   const triggerSelectors = [
     '[aria-label*="Change location" i]',
+    '[aria-label*="Edit location" i]',
     '[aria-label*="location" i]',
-    'div[role="button"]:has-text("miles")',
     'div[role="button"]:has-text("Within")',
+    'div[role="button"]:has-text("miles")',
     'span:has-text("Within")',
     'a[href*="/marketplace/"]:has-text("miles")',
     'div[role="button"]:has-text("mi")',
@@ -629,8 +748,71 @@ async function confirmLocationDialog(page: Page): Promise<void> {
 }
 
 /**
+ * Force Facebook Marketplace to use the target ZIP/city via the UI location picker.
+ * Must be called on Marketplace home or search-results pages.
+ */
+export async function ensureMarketplaceTargetLocation(
+  page: Page,
+  location: string,
+  radius: number
+): Promise<void> {
+  if (!location.trim()) return;
+
+  const snappedRadius = snapRadiusMiles(radius);
+  const { query: pickerQuery, stateHint } =
+    await resolveLocationPickerQuery(location);
+
+  const slug = await resolveLocationSlug(location);
+  if (slug) {
+    const metroOk = await gotoMetroBrowsePage(page, slug);
+    if (metroOk) {
+      console.log(
+        `Opened nearest metro "${slug}" before setting precise location for "${location}"`
+      );
+    } else {
+      await ensureMarketplaceHome(page);
+    }
+  } else {
+    await ensureMarketplaceHome(page);
+  }
+
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    console.log(
+      `Setting Marketplace location (attempt ${attempt}/4): ${pickerQuery}`
+    );
+
+    const applied = await applyMarketplaceSearchLocation(
+      page,
+      location,
+      snappedRadius
+    );
+    if (!applied) {
+      await randomDelay(1500, 2500);
+      continue;
+    }
+
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await randomDelay(4000, 6000);
+
+    if (await verifyTargetLocationApplied(page, location)) {
+      console.log(`Marketplace location confirmed for "${location}"`);
+      return;
+    }
+
+    console.warn(
+      `Location "${location}" not reflected yet (attempt ${attempt}), retrying picker`
+    );
+    await randomDelay(1500, 2500);
+  }
+
+  throw new ScraperError(
+    `Facebook Marketplace stayed on the profile default location instead of "${location}". Open the Multilogin profile, go to Marketplace, manually set location to ${pickerQuery}, save, then try again.`,
+    "SCRAPE"
+  );
+}
+
+/**
  * Apply location on the current Marketplace page (home or search results).
- * Works best after a search when the left-side location filter is visible.
  */
 export async function applyMarketplaceSearchLocation(
   page: Page,
@@ -664,27 +846,30 @@ export async function applyMarketplaceSearchLocation(
       )
       .first();
 
-    if ((await locationInput.count()) === 0 && !opened) {
+    if ((await locationInput.count()) > 0) {
+      await locationInput.click({ force: true });
+      await locationInput.fill("");
+      await randomDelay(300, 500);
+      await locationInput.pressSequentially(pickerQuery, { delay: 75 });
+      await randomDelay(2500, 3500);
+      await selectLocationSuggestion(page, stateHint);
+    } else if (!opened) {
       console.warn("Marketplace location picker input not found");
       return false;
     }
 
-    if ((await locationInput.count()) > 0) {
-      await locationInput.click({ force: true });
-      await locationInput.fill("");
-      await randomDelay(200, 400);
-      await locationInput.fill(pickerQuery);
-      await randomDelay(1500, 2500);
-      await selectLocationSuggestion(page, stateHint);
-    }
-
     await applyRadiusSelection(page, snappedRadius);
     await confirmLocationDialog(page);
+
+    // Close filters drawer if still open so results can refresh
+    await page.keyboard.press("Escape").catch(() => {});
+    await randomDelay(500, 800);
+
     await page.waitForLoadState("networkidle").catch(() => {});
     await randomDelay(2000, 3000);
 
     console.log(
-      `Marketplace location applied: ${pickerQuery} (${snappedRadius} mi), URL: ${page.url()}`
+      `Marketplace location picker submitted: ${pickerQuery} (${snappedRadius} mi), URL: ${page.url()}`
     );
     return true;
   } catch (error) {
