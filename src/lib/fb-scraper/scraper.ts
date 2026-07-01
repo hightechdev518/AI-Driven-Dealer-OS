@@ -15,7 +15,6 @@ import {
   buildMarketplaceSearchUrl,
   buildSearchQuery,
   ensureMarketplaceHome,
-  gotoMetroBrowsePage,
   isMarketplaceLocationRedirect,
   resolveLocationSlug,
 } from "./marketplace-location";
@@ -311,14 +310,29 @@ function hasExtraUiFilters(params: FbSearchParams): boolean {
   );
 }
 
+async function findMarketplaceSearchInput(page: Page) {
+  const selectors = [
+    'input[aria-label="Search Marketplace"]',
+    'input[aria-label*="Search Marketplace" i]',
+    'input[placeholder*="Search Marketplace" i]',
+    'input[placeholder*="Search" i]',
+    'input[aria-label*="Search" i]',
+  ];
+
+  for (const selector of selectors) {
+    const input = page.locator(selector).first();
+    if ((await input.count()) > 0) {
+      return input;
+    }
+  }
+
+  return null;
+}
+
 async function runMarketplaceSearchInPage(
   page: Page,
   params: FbSearchParams
 ): Promise<void> {
-  if (!page.url().toLowerCase().includes("marketplace")) {
-    await ensureMarketplaceHome(page);
-  }
-
   const query = buildSearchQuery(params);
   if (!query) {
     console.log("No search query provided, using current marketplace page");
@@ -328,48 +342,61 @@ async function runMarketplaceSearchInPage(
     return;
   }
 
-  console.log(`Searching marketplace in-page for: ${query}`);
+  const attemptSearch = async (): Promise<void> => {
+    console.log(`Searching marketplace in-page for: ${query}`);
 
-  const marketplaceSearch = page
-    .locator('input[aria-label="Search Marketplace"]')
-    .first();
+    let searchInput = await findMarketplaceSearchInput(page);
 
-  if ((await marketplaceSearch.count()) === 0) {
-    console.log("Search Marketplace input not found, trying search icon...");
-    const searchIcon = page
-      .locator(
-        '[aria-label*="Search"], button[aria-label*="Search"], [role="button"][aria-label*="Search"]'
-      )
-      .first();
+    if (!searchInput) {
+      console.log("Search input not found, trying search icon...");
+      const searchIcon = page
+        .locator(
+          '[aria-label*="Search"], button[aria-label*="Search"], [role="button"][aria-label*="Search"]'
+        )
+        .first();
 
-    if ((await searchIcon.count()) > 0) {
-      await searchIcon.click({ force: true });
-      await page.waitForTimeout(1000);
+      if ((await searchIcon.count()) > 0) {
+        await searchIcon.click({ force: true });
+        await page.waitForTimeout(1000);
+      }
+
+      searchInput = await findMarketplaceSearchInput(page);
+    }
+
+    if (!searchInput) {
+      throw new ScraperError(
+        "Could not find marketplace search box on current page",
+        "SCRAPE"
+      );
+    }
+
+    await searchInput.click({ force: true });
+    await searchInput.fill(query);
+    await page.waitForTimeout(1000);
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(5000);
+  };
+
+  if (!page.url().toLowerCase().includes("marketplace")) {
+    await ensureMarketplaceHome(page);
+  }
+
+  try {
+    await attemptSearch();
+  } catch (error) {
+    if (
+      error instanceof ScraperError &&
+      error.message.includes("search box")
+    ) {
+      console.warn(
+        `Search box missing on ${page.url()}, returning to Marketplace home and retrying`
+      );
+      await ensureMarketplaceHome(page);
+      await attemptSearch();
+    } else {
+      throw error;
     }
   }
-
-  let searchInput = page
-    .locator('input[aria-label="Search Marketplace"]')
-    .first();
-
-  if ((await searchInput.count()) === 0) {
-    searchInput = page
-      .locator('input[placeholder*="Search"], input[aria-label*="Search"]')
-      .first();
-  }
-
-  if ((await searchInput.count()) === 0) {
-    throw new ScraperError(
-      "Could not find marketplace search box on current page",
-      "SCRAPE"
-    );
-  }
-
-  await searchInput.click({ force: true });
-  await searchInput.fill(query);
-  await page.waitForTimeout(1000);
-  await page.keyboard.press("Enter");
-  await page.waitForTimeout(5000);
 
   if (await isSessionLost(page)) {
     throw new ScraperError(
@@ -431,50 +458,45 @@ async function navigateMarketplaceSearch(
 
   await ensureMarketplaceHome(page);
 
-  if (location) {
-    if (slug) {
-      console.log(`Resolved "${location}" to Marketplace metro slug "${slug}"`);
-      const metroOk = await gotoMetroBrowsePage(page, slug);
-      if (!metroOk) {
-        console.warn(
-          `Metro browse failed for "${slug}", applying location picker before search`
-        );
-        await applyMarketplaceSearchLocation(page, location, params.radius);
-      }
-    } else {
-      console.warn(
-        `No metro slug for "${location}", applying location picker before search`
-      );
-      await applyMarketplaceSearchLocation(page, location, params.radius);
-    }
+  if (location && slug) {
+    console.log(`Resolved "${location}" to Marketplace metro slug "${slug}"`);
   }
 
+  // Primary path: direct search URL includes location + query + radius in one navigation.
   if (location && query && slug) {
     if (await tryDirectMarketplaceUrl(page, slug, params)) {
+      await page.waitForTimeout(4000);
+      await humanScroll(page, 2);
       const listingCount = await countVisibleListings(page);
-      if (listingCount > 0) {
-        console.log(
-          `Direct URL search found ${listingCount} visible listings for ${location}`
-        );
-        await logMarketplaceSearchState(page);
-        return;
-      }
-      console.warn(
-        `Direct URL loaded but 0 listings visible — falling back to in-page search`
+      console.log(
+        `Direct URL search for "${location}" shows ${listingCount} visible listings at ${page.url()}`
       );
-      await gotoMetroBrowsePage(page, slug);
+      await logMarketplaceSearchState(page);
+      return;
     }
+
+    console.warn(
+      `Direct URL search failed for "${location}", falling back to Marketplace home search`
+    );
+    await ensureMarketplaceHome(page);
+    await applyMarketplaceSearchLocation(page, location, params.radius);
+  } else if (location && !slug) {
+    console.warn(
+      `No metro slug for "${location}", using location picker on Marketplace home`
+    );
+    await applyMarketplaceSearchLocation(page, location, params.radius);
   }
 
   if (query) {
     await runMarketplaceSearchInPage(page, params);
     const listingCount = await countVisibleListings(page);
     console.log(`In-page search shows ${listingCount} visible listings`);
-  } else if (!query) {
-    console.log("No vehicle query provided, using current marketplace page");
-    await page.waitForTimeout(2000);
-    await logMarketplaceSearchState(page);
+    return;
   }
+
+  console.log("No vehicle query provided, using current marketplace page");
+  await page.waitForTimeout(2000);
+  await logMarketplaceSearchState(page);
 }
 
 async function scrapeWithPage(
